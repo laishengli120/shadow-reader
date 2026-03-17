@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SHADOW READER</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@700;800&family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* ============================================================
+           DESIGN TOKENS
+        ============================================================ */
+        :root {
+            --bg:       #F2EDE6;
+            --white:    #FFFFFF;
+            --black:    #111111;
+            --yellow:   #FFD600;
+            --pink:     #FF3D71;
+            --cyan:     #00D4FF;
+            --purple:   #7C3AED;
+            --gray-100: #F5F5F5;
+            --gray-300: #D1D5DB;
+            --gray-500: #6B7280;
+            --green:    #00C48C;
+
+            --border:   2px solid var(--black);
+            --shadow-s: 3px 3px 0 var(--black);
+            --shadow-m: 5px 5px 0 var(--black);
+            --shadow-l: 8px 8px 0 var(--black);
+
+            --radius:   0px; /* brutalist: square corners */
+            --font-display: 'Syne', 'Noto Sans SC', sans-serif;
+            --font-mono:    'Space Mono', monospace;
+            --font-body:    'Noto Sans SC', system-ui, sans-serif;
+
+            /* Layout */
+            --sidebar-w: 300px;
+        }
+
+        /* ============================================================
+           RESET / BASE
+        ============================================================ */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: var(--font-body);
+            background-color: var(--bg);
+            background-image: radial-gradient(var(--black) 1.5px, transparent 1.5px);
+            background-size: 28px 28px;
+            color: var(--black);
+            min-height: 100vh;
+        }
+
+        /* ============================================================
+           DESKTOP LAYOUT — two-column grid
+        ============================================================ */
+        .app-shell {
+            display: grid;
+            grid-template-columns: var(--sidebar-w) 1fr;
+            grid-template-rows: auto 1fr auto;
+            grid-template-areas:
+                "header  header"
+                "sidebar main"
+                "sidebar footer";
+            min-height: 100vh;
+            max-width: 1200px;
+            margin: 0 auto;
+            background: var(--white);
+            border-left: var(--border);
+            border-right: var(--border);
+        }
+
+        /* ============================================================
+           HEADER
+        ============================================================ */
+        .app-header {
+            grid-area: header;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 28px;
+            background: var(--black);
+            color: var(--white);
+            border-bottom: var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 20;
+        }
+
+        .logo {
+            font-family: var(--font-display);
+            font-size: clamp(1.2rem, 3vw, 1.7rem);
+            font-weight: 800;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: var(--white);
+            /* Layered text shadow for depth */
+            text-shadow:
+                2px 2px 0 var(--cyan),
+                4px 4px 0 var(--pink);
+        }
+
+        .header-meta {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .lang-pill {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            border: 2px solid var(--gray-300);
+            color: var(--gray-300);
+            padding: 4px 10px;
+            cursor: pointer;
+            background: transparent;
+            transition: border-color 0.15s, color 0.15s;
+        }
+        .lang-pill.active {
+            border-color: var(--cyan);
+            color: var(--cyan);
+        }
+        .lang-pill:hover { border-color: var(--white); color: var(--white); }
+
+        /* ============================================================
+           SIDEBAR — Settings
+        ============================================================ */
+        .app-sidebar {
+            grid-area: sidebar;
+            border-right: var(--border);
+            display: flex;
+            flex-direction: column;
+            background: var(--gray-100);
+            padding: 0;
+            /* sticky on desktop */
+            position: sticky;
+            top: 60px; /* header height */
+            height: calc(100vh - 60px);
+            overflow-y: auto;
+        }
+
+        .sidebar-section {
+            padding: 20px 20px 16px;
+            border-bottom: var(--border);
+        }
+        .sidebar-section:last-child { border-bottom: none; flex: 1; }
+
+        .sidebar-title {
+            font-family: var(--font-display);
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 2.5px;
+            text-transform: uppercase;
+            color: var(--gray-500);
+            margin-bottom: 14px;
+        }
+
+        /* ============================================================
+           FORM ELEMENTS
+        ============================================================ */
+        .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+        .form-group:last-child { margin-bottom: 0; }
+
+        label {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: var(--gray-500);
+        }
+
+        select, input[type="number"] {
+            width: 100%;
+            padding: 10px 12px;
+            border: var(--border);
+            background: var(--white);
+            font-family: var(--font-mono);
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--black);
+            appearance: none;
+            -webkit-appearance: none;
+            cursor: pointer;
+            transition: box-shadow 0.15s;
+        }
+        select:focus, input:focus {
+            outline: none;
+            box-shadow: var(--shadow-s);
+        }
+
+        .select-wrap {
+            position: relative;
+        }
+        .select-wrap::after {
+            content: '▾';
+            position: absolute;
+            right: 12px; top: 50%;
+            transform: translateY(-50%);
+            pointer-events: none;
+            font-size: 14px;
+        }
+
+        /* Accent tag grid */
+        .accent-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+        }
+
+        .accent-tag {
+            padding: 8px 4px;
+            border: var(--border);
+            background: var(--white);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 700;
+            text-align: center;
+            cursor: pointer;
+            transition: background 0.1s, box-shadow 0.1s, transform 0.1s;
+            user-select: none;
+        }
+        .accent-tag:hover { background: var(--gray-100); }
+        .accent-tag.selected {
+            background: var(--yellow);
+            box-shadow: var(--shadow-s);
+        }
+        .accent-tag:active { transform: translate(2px, 2px); box-shadow: none; }
+
+        /* Interval stepper */
+        .stepper {
+            display: flex;
+            align-items: stretch;
+            border: var(--border);
+        }
+        .stepper button {
+            width: 40px;
+            background: var(--white);
+            border: none;
+            border-right: var(--border);
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: background 0.1s;
+        }
+        .stepper button:last-child { border-right: none; border-left: var(--border); }
+        .stepper button:hover { background: var(--yellow); }
+        .stepper input {
+            flex: 1;
+            border: none;
+            text-align: center;
+            padding: 10px 0;
+            font-family: var(--font-mono);
+            font-size: 15px;
+            font-weight: 700;
+        }
+        .stepper input:focus { outline: none; box-shadow: none; }
+        /* Hide native browser number spinners */
+        .stepper input[type="number"]::-webkit-inner-spin-button,
+        .stepper input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        .stepper input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+
+        /* ============================================================
+           MAIN AREA
+        ============================================================ */
+        .app-main {
+            grid-area: main;
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+        }
+
+        /* Input zone */
+        .input-zone {
+            padding: 24px 28px;
+            border-bottom: var(--border);
+            background: var(--white);
+        }
+
+        .zone-label {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: var(--gray-500);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .zone-label::before {
+            content: '';
+            display: inline-block;
+            width: 8px; height: 8px;
+            background: var(--yellow);
+            border: 2px solid var(--black);
+            flex-shrink: 0;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 14px 16px;
+            border: var(--border);
+            background: var(--gray-100);
+            font-family: var(--font-mono);
+            font-size: 14px;
+            line-height: 1.8;
+            color: var(--black);
+            resize: vertical;
+            min-height: 140px;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        textarea:focus {
+            outline: none;
+            background: var(--white);
+            box-shadow: var(--shadow-s);
+        }
+        textarea::placeholder { color: var(--gray-500); }
+
+        /* Control strip */
+        .control-strip {
+            padding: 16px 28px;
+            border-bottom: var(--border);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            background: var(--white);
+        }
+
+        /* Status badge */
+        .status-badge {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            padding: 6px 12px;
+            border: var(--border);
+            margin-left: auto;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--gray-300);
+            flex-shrink: 0;
+        }
+        .status-badge[data-state="s_ready"]   .status-dot { background: var(--green); }
+        .status-badge[data-state="s_syncing"] .status-dot { background: var(--yellow); animation: blink 0.8s infinite; }
+        .status-badge[data-state="s_audio_ready"] .status-dot { background: var(--cyan); }
+        .status-badge[data-state="s_playing"]  .status-dot { background: var(--cyan); animation: blink 0.5s infinite; }
+        .status-badge[data-state="s_listening"] .status-dot { background: var(--cyan); animation: blink 0.5s infinite; }
+        .status-badge[data-state="s_your_turn"] .status-dot { background: var(--pink); animation: blink 0.6s infinite; }
+        .status-badge[data-state="s_error"]    .status-dot { background: var(--pink); }
+        .status-badge[data-state="s_finished"] .status-dot { background: var(--green); }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0.2; }
+        }
+
+        /* Action buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            padding: 11px 18px;
+            border: var(--border);
+            font-family: var(--font-display);
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            cursor: pointer;
+            color: var(--black);
+            box-shadow: var(--shadow-s);
+            transition: transform 0.08s, box-shadow 0.08s;
+            white-space: nowrap;
+            background: var(--white);
+        }
+        .btn:active:not(:disabled) {
+            transform: translate(3px, 3px);
+            box-shadow: none;
+        }
+        .btn:disabled {
+            background: var(--gray-100) !important;
+            color: var(--gray-500) !important;
+            box-shadow: none;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        .btn-generate { background: var(--yellow); }
+        .btn-play     { background: var(--cyan); }
+        .btn-download { background: var(--pink); }
+
+        /* Loading spinner inside btn */
+        .spinner {
+            display: none;
+            width: 16px; height: 16px;
+            border: 2.5px solid transparent;
+            border-top-color: var(--black);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .is-loading .spinner { display: block; }
+        .is-loading .btn-icon-svg { display: none; }
+
+        /* ============================================================
+           OUTPUT / READ BOARD
+        ============================================================ */
+        .output-zone {
+            flex: 1;
+            padding: 24px 28px;
+            background: var(--black);
+            min-height: 200px;
+        }
+
+        .output-inner {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            min-height: 180px;
+            opacity: 0.3;
+            color: var(--white);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+        .empty-state svg { opacity: 0.6; }
+
+        .text-line {
+            display: block;
+            color: rgba(255,255,255,0.35);
+            font-family: var(--font-mono);
+            font-size: clamp(14px, 2.5vw, 18px);
+            line-height: 1.9;
+            padding: 6px 12px 6px 16px;
+            border-left: 3px solid transparent;
+            transition: color 0.2s, border-color 0.2s, background 0.2s;
+            border-radius: 0;
+        }
+        .text-line.active {
+            color: var(--yellow);
+            border-left-color: var(--pink);
+            background: rgba(255, 214, 0, 0.06);
+            font-weight: 700;
+        }
+
+        /* ============================================================
+           FOOTER
+        ============================================================ */
+        .app-footer {
+            grid-area: footer;
+            padding: 12px 20px;
+            border-top: var(--border);
+            border-right: var(--border);
+            background: var(--gray-100);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: var(--gray-500);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        audio { display: none; }
+
+        /* ============================================================
+           MOBILE — single column, bottom sheet settings
+        ============================================================ */
+        @media (max-width: 768px) {
+            .app-shell {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto 1fr auto;
+                grid-template-areas:
+                    "header"
+                    "main"
+                    "main"
+                    "footer";
+                border: none;
+            }
+
+            .app-sidebar {
+                display: none; /* hidden, replaced by bottom sheet */
+                position: fixed;
+                inset: 0;
+                top: auto;
+                height: auto;
+                max-height: 80vh;
+                z-index: 100;
+                border-right: none;
+                border-top: var(--border);
+                overflow-y: auto;
+                overscroll-behavior: contain;
+                background: var(--white);
+            }
+            .app-sidebar.open {
+                display: flex;
+                flex-direction: column;
+                animation: slideUp 0.25s ease-out;
+            }
+
+            @keyframes slideUp {
+                from { transform: translateY(100%); opacity: 0; }
+                to   { transform: translateY(0); opacity: 1; }
+            }
+
+            /* Mobile backdrop */
+            .mobile-backdrop {
+                display: none;
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 99;
+                backdrop-filter: blur(2px);
+            }
+            .mobile-backdrop.open { display: block; }
+
+            .input-zone  { padding: 16px; }
+            .control-strip { padding: 12px 16px; flex-wrap: wrap; }
+            .output-zone { padding: 16px; }
+
+            .btn { padding: 12px 14px; font-size: 12px; }
+            .status-badge { margin-left: 0; width: 100%; justify-content: center; }
+
+            .btn-generate { flex: 1 1 100%; }
+            .btn-play, .btn-download { flex: 1; }
+
+            .control-strip { gap: 8px; }
+
+            .app-footer { display: none; }
+
+            /* Handle in bottom sheet */
+            .sheet-handle {
+                display: flex;
+                justify-content: center;
+                padding: 12px;
+                border-bottom: var(--border);
+            }
+            .sheet-handle-bar {
+                width: 40px; height: 4px;
+                background: var(--gray-300);
+                border-radius: 2px;
+            }
+
+            /* Mobile settings toggle in header */
+            .btn-settings-mobile { display: flex !important; }
+        }
+
+        @media (min-width: 769px) {
+            .btn-settings-mobile { display: none !important; }
+            .sheet-handle { display: none; }
+        }
+
+        /* Settings button (mobile only) */
+        .btn-settings-mobile {
+            background: rgba(255,255,255,0.12);
+            border: 2px solid rgba(255,255,255,0.3);
+            color: var(--white);
+            width: 40px; height: 40px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: background 0.15s;
+        }
+        .btn-settings-mobile:hover { background: rgba(255,255,255,0.2); }
+
+        /* ============================================================
+           PROGRESS BAR (audio progress)
+        ============================================================ */
+        .progress-track {
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.1);
+            position: relative;
+            overflow: hidden;
+            margin-top: 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: var(--cyan);
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+    </style>
+</head>
+<body>
+
+<!-- Mobile backdrop -->
+<div class="mobile-backdrop" id="mobileBackdrop" onclick="closeSidebar()"></div>
+
+<div class="app-shell">
+
+    <!-- ── HEADER ── -->
+    <header class="app-header">
+        <span class="logo">Shadow Reader</span>
+        <div class="header-meta">
+            <button class="lang-pill active" id="langEN" onclick="setLang('en')">EN</button>
+            <button class="lang-pill"        id="langZH" onclick="setLang('zh')">中文</button>
+            <!-- Mobile settings icon -->
+            <button class="btn-settings-mobile" onclick="openSidebar()" aria-label="Open settings">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                    <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- ── SIDEBAR / SETTINGS ── -->
+    <aside class="app-sidebar" id="appSidebar" role="complementary" aria-label="Settings">
+        <!-- mobile drag handle -->
+        <div class="sheet-handle">
+            <div class="sheet-handle-bar"></div>
+        </div>
+
+        <div class="sidebar-section">
+            <p class="sidebar-title" data-i18n="settingsTitle">Configuration</p>
+
+            <div class="form-group">
+                <label data-i18n="accentLabel">Accent</label>
+                <div class="accent-grid" id="accentGrid">
+                    <div class="accent-tag selected" data-accent="US" onclick="selectAccent(this)">🇺🇸 US</div>
+                    <div class="accent-tag"           data-accent="UK" onclick="selectAccent(this)">🇬🇧 UK</div>
+                    <div class="accent-tag"           data-accent="AU" onclick="selectAccent(this)">🇦🇺 AU</div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label data-i18n="pauseLabel">Pause Interval (sec)</label>
+                <div class="stepper">
+                    <button type="button" onclick="stepInterval(-0.5)" aria-label="Decrease">−</button>
+                    <input type="number" id="intervalInput" min="0" max="10" step="0.5" value="2" aria-label="Pause interval in seconds">
+                    <button type="button" onclick="stepInterval(0.5)" aria-label="Increase">+</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="sidebar-section">
+            <p class="sidebar-title">About</p>
+            <p style="font-size:12px; line-height:1.8; color:var(--gray-500); font-family:var(--font-mono);">
+                Shadow reading trains pronunciation by listening to a phrase and repeating it during the pause.
+            </p>
+        </div>
+    </aside>
+
+    <!-- ── MAIN ── -->
+    <main class="app-main">
+
+        <!-- Input zone -->
+        <section class="input-zone">
+            <p class="zone-label" data-i18n="inputLabel">Input Text — one line per sentence</p>
+            <textarea
+                id="textInput"
+                placeholder="Apple&#10;Banana&#10;How are you doing today?"
+                aria-label="Text to read aloud"
+            >Apple
+Banana
+How are you doing today?</textarea>
+        </section>
+
+        <!-- Control strip -->
+        <div class="control-strip" role="toolbar" aria-label="Playback controls">
+
+            <button class="btn btn-generate" id="syncBtn" onclick="generateAudio()" aria-label="Generate audio">
+                <span class="spinner" aria-hidden="true"></span>
+                <svg class="btn-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+                <span data-i18n="generateBtn">Generate Audio</span>
+            </button>
+
+            <button class="btn btn-play" id="playBtn" onclick="togglePlay()" disabled aria-label="Play">
+                <svg id="playIcon" class="btn-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5,3 19,12 5,21"></polygon>
+                </svg>
+                <span id="playText" data-i18n="playBtn">Play</span>
+            </button>
+
+            <button class="btn btn-download" id="downloadBtn" onclick="downloadAudio()" disabled aria-label="Download MP3">
+                <svg class="btn-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M21 15v4H3v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                <span data-i18n="downloadBtn">Download</span>
+            </button>
+
+            <div class="status-badge" id="statusBadge" data-state="s_ready" role="status" aria-live="polite">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span id="statusText" data-i18n="s_ready">SYSTEM READY</span>
+            </div>
+        </div>
+
+        <!-- Progress bar -->
+        <div class="progress-track" aria-hidden="true">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+
+        <!-- Output read board -->
+        <section class="output-zone" aria-label="Synchronized text display">
+            <div class="output-inner" id="readBoard">
+                <div class="empty-state">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 12h4l3-9 5 18 3-9h5"/></svg>
+                    <span data-i18n="emptyBoard">Synced lines will appear here</span>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ── FOOTER (desktop) ── -->
+    <footer class="app-footer">
+        <span>Shadow Reader v2.0</span>
+        <span data-i18n="footerNote">Listen · Pause · Repeat</span>
+    </footer>
+
+</div>
+
+<audio id="audioPlayer"></audio>
+
+<script>
+/* ================================================================
+   i18n
+================================================================ */
+const dict = {
+    en: {
+        settingsTitle: "Configuration",
+        accentLabel:   "Pronunciation Accent",
+        pauseLabel:    "Pause Interval (sec)",
+        inputLabel:    "Input Text — one line per sentence",
+        generateBtn:   "Generate Audio",
+        playBtn:       "Play",
+        pauseBtn:      "Pause",
+        downloadBtn:   "Download",
+        emptyBoard:    "Synced lines will appear here",
+        footerNote:    "Listen · Pause · Repeat",
+        s_ready:       "READY",
+        s_syncing:     "GENERATING...",
+        s_audio_ready: "AUDIO READY",
+        s_error:       "GENERATION FAILED",
+        s_playing:     "PLAYING",
+        s_paused:      "PAUSED",
+        s_finished:    "FINISHED",
+        s_your_turn:   "YOUR TURN",
+        s_listening:   "LISTENING",
+    },
+    zh: {
+        settingsTitle: "偏好设置",
+        accentLabel:   "发音口音",
+        pauseLabel:    "跟读等待时间 (秒)",
+        inputLabel:    "输入文本 — 每行一个句子",
+        generateBtn:   "生成音频",
+        playBtn:       "开始播放",
+        pauseBtn:      "暂停",
+        downloadBtn:   "导出 MP3",
+        emptyBoard:    "生成后，跟读字幕将在此显示",
+        footerNote:    "听 · 停 · 跟读",
+        s_ready:       "就绪",
+        s_syncing:     "合成中…",
+        s_audio_ready: "已就绪",
+        s_error:       "生成失败",
+        s_playing:     "领读中",
+        s_paused:      "已暂停",
+        s_finished:    "已完成",
+        s_your_turn:   "跟读中…",
+        s_listening:   "正在领读",
+    }
+};
+
+let lang = 'en';
+
+function setLang(l) {
+    lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
+    document.getElementById('langEN').classList.toggle('active', l === 'en');
+    document.getElementById('langZH').classList.toggle('active', l === 'zh');
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.dataset.i18n;
+        if (dict[l][key] !== undefined) el.textContent = dict[l][key];
+    });
+    refreshStatus();
+    refreshPlayBtn();
+}
+
+function t(key) { return dict[lang][key] || key; }
+
+/* ================================================================
+   Settings sidebar (mobile = bottom sheet)
+================================================================ */
+function openSidebar() {
+    document.getElementById('appSidebar').classList.add('open');
+    document.getElementById('mobileBackdrop').classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+function closeSidebar() {
+    document.getElementById('appSidebar').classList.remove('open');
+    document.getElementById('mobileBackdrop').classList.remove('open');
+    document.body.style.overflow = '';
+}
+
+/* ================================================================
+   Accent selector
+================================================================ */
+let selectedAccent = 'US';
+function selectAccent(el) {
+    document.querySelectorAll('.accent-tag').forEach(e => e.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedAccent = el.dataset.accent;
+}
+
+/* ================================================================
+   Interval stepper
+================================================================ */
+function stepInterval(delta) {
+    const input = document.getElementById('intervalInput');
+    let v = parseFloat(input.value) + delta;
+    v = Math.min(10, Math.max(0, Math.round(v * 2) / 2));
+    input.value = v;
+}
+
+/* ================================================================
+   Status management
+================================================================ */
+let currentState = 's_ready';
+
+function setStatus(key) {
+    currentState = key;
+    document.getElementById('statusBadge').setAttribute('data-state', key);
+    refreshStatus();
+}
+function refreshStatus() {
+    document.getElementById('statusText').textContent = t(currentState);
+}
+
+/* ================================================================
+   Core audio logic
+================================================================ */
+const audioPlayer  = document.getElementById('audioPlayer');
+const readBoard    = document.getElementById('readBoard');
+const playBtn      = document.getElementById('playBtn');
+const downloadBtn  = document.getElementById('downloadBtn');
+const syncBtn      = document.getElementById('syncBtn');
+const playText     = document.getElementById('playText');
+const playIcon     = document.getElementById('playIcon');
+const progressFill = document.getElementById('progressFill');
+
+let currentTimings = [];
+let audioBlobUrl   = null;
+let rafId          = null;
+
+async function generateAudio() {
+    const text = document.getElementById('textInput').value.trim();
+    if (!text) {
+        alert(t('inputLabel') + '!');
+        return;
+    }
+
+    syncBtn.disabled = true;
+    syncBtn.classList.add('is-loading');
+    playBtn.disabled = true;
+    downloadBtn.disabled = true;
+    setStatus('s_syncing');
+
+    try {
+        const res = await fetch('/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                text,
+                interval: document.getElementById('intervalInput').value,
+                accent: selectedAccent
+            })
+        });
+        if (!res.ok) throw new Error();
+
+        const data = await res.json();
+        const raw  = atob(data.audio_base64);
+        const buf  = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+        const blob = new Blob([buf], { type: 'audio/mpeg' });
+
+        if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl);
+        audioBlobUrl = URL.createObjectURL(blob);
+        audioPlayer.src = audioBlobUrl;
+
+        currentTimings = data.timings;
+        buildReadBoard();
+        setStatus('s_audio_ready');
+        playBtn.disabled  = false;
+        downloadBtn.disabled = false;
+
+    } catch (e) {
+        console.error(e);
+        setStatus('s_error');
+    } finally {
+        syncBtn.disabled = false;
+        syncBtn.classList.remove('is-loading');
+    }
+}
+
+function buildReadBoard() {
+    readBoard.innerHTML = '';
+    currentTimings.forEach(timing => {
+        const span = document.createElement('span');
+        span.className   = 'text-line';
+        span.id          = `line-${timing.index}`;
+        span.textContent = timing.text;
+        readBoard.appendChild(span);
+    });
+}
+
+function refreshPlayBtn() {
+    if (!audioPlayer.paused && audioPlayer.src) {
+        playText.textContent = t('pauseBtn');
+        playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect>';
+    } else {
+        playText.textContent = t('playBtn');
+        playIcon.innerHTML = '<polygon points="5,3 19,12 5,21"></polygon>';
+    }
+}
+
+function togglePlay() {
+    if (audioPlayer.paused) {
+        audioPlayer.play();
+        setStatus('s_playing');
+        rafId = requestAnimationFrame(tick);
+    } else {
+        audioPlayer.pause();
+        setStatus('s_paused');
+        if (rafId) cancelAnimationFrame(rafId);
+    }
+    refreshPlayBtn();
+}
+
+audioPlayer.addEventListener('ended', () => {
+    setStatus('s_finished');
+    if (rafId) cancelAnimationFrame(rafId);
+    document.querySelectorAll('.text-line').forEach(el => el.classList.remove('active'));
+    progressFill.style.width = '0%';
+    refreshPlayBtn();
+});
+
+function tick() {
+    if (audioPlayer.paused) return;
+
+    const cur = audioPlayer.currentTime;
+    const dur = audioPlayer.duration || 1;
+    progressFill.style.width = `${(cur / dur) * 100}%`;
+
+    let silent = true;
+    currentTimings.forEach(timing => {
+        const el = document.getElementById(`line-${timing.index}`);
+        if (!el) return;
+        if (cur >= timing.start_time && cur <= timing.end_time) {
+            el.classList.add('active');
+            silent = false;
+        } else {
+            el.classList.remove('active');
+        }
+    });
+    setStatus(silent ? 's_your_turn' : 's_listening');
+
+    rafId = requestAnimationFrame(tick);
+}
+
+function downloadAudio() {
+    if (!audioBlobUrl) return;
+    const a = document.createElement('a');
+    a.href     = audioBlobUrl;
+    a.download = lang === 'zh' ? '英语跟读训练.mp3' : 'shadow_reader.mp3';
+    a.click();
+}
+
+// Init
+setLang('en');
+</script>
+</body>
+</html>
