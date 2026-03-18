@@ -1,738 +1,833 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SHADOW READER</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@700;800&family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet">
-    <style>
-        /* ============================================================
-           DESIGN TOKENS
-        ============================================================ */
-        :root {
-            --bg:       #F2EDE6;
-            --white:    #FFFFFF;
-            --black:    #111111;
-            --yellow:   #FFD600;
-            --pink:     #FF3D71;
-            --cyan:     #00D4FF;
-            --purple:   #7C3AED;
-            --gray-100: #F5F5F5;
-            --gray-300: #D1D5DB;
-            --gray-500: #6B7280;
-            --green:    #00C48C;
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Shadow Reader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   DESIGN TOKENS
+============================================================ */
+:root {
+  --bg:        #F0EBE3;
+  --white:     #FFFFFF;
+  --black:     #111111;
+  --yellow:    #FFD600;
+  --pink:      #FF3D71;
+  --cyan:      #00D4FF;
+  --green:     #00C48C;
+  --gray-50:   #F9F9F9;
+  --gray-100:  #F2F2F2;
+  --gray-200:  #E5E5E5;
+  --gray-400:  #A0A0A0;
+  --gray-500:  #6B7280;
+  --gray-700:  #374151;
 
-            --border:   2px solid var(--black);
-            --shadow-s: 3px 3px 0 var(--black);
-            --shadow-m: 5px 5px 0 var(--black);
-            --shadow-l: 8px 8px 0 var(--black);
+  --border:    2px solid var(--black);
+  --border-sm: 1.5px solid var(--black);
+  --shadow-s:  3px 3px 0 var(--black);
+  --shadow-m:  5px 5px 0 var(--black);
 
-            --radius:   0px; /* brutalist: square corners */
-            --font-display: 'Syne', 'Noto Sans SC', sans-serif;
-            --font-mono:    'Space Mono', monospace;
-            --font-body:    'Noto Sans SC', system-ui, sans-serif;
+  --font-display: 'Syne', 'Noto Sans SC', sans-serif;
+  --font-mono:    'Space Mono', monospace;
+  --font-body:    'Noto Sans SC', system-ui, sans-serif;
 
-            /* Layout */
-            --sidebar-w: 300px;
-        }
+  --sidebar-w: 280px;
+  --header-h:  58px;
+}
 
-        /* ============================================================
-           RESET / BASE
-        ============================================================ */
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-        body {
-            font-family: var(--font-body);
-            background-color: var(--bg);
-            background-image: radial-gradient(var(--black) 1.5px, transparent 1.5px);
-            background-size: 28px 28px;
-            color: var(--black);
-            min-height: 100vh;
-        }
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  background-image: radial-gradient(var(--black) 1.2px, transparent 1.2px);
+  background-size: 26px 26px;
+  color: var(--black);
+  min-height: 100vh;
+}
 
-        /* ============================================================
-           DESKTOP LAYOUT — two-column grid
-        ============================================================ */
-        .app-shell {
-            display: grid;
-            grid-template-columns: var(--sidebar-w) 1fr;
-            grid-template-rows: auto 1fr auto;
-            grid-template-areas:
-                "header  header"
-                "sidebar main"
-                "sidebar footer";
-            min-height: 100vh;
-            max-width: 1200px;
-            margin: 0 auto;
-            background: var(--white);
-            border-left: var(--border);
-            border-right: var(--border);
-        }
+/* ============================================================
+   LAYOUT
+============================================================ */
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-rows: var(--header-h) 1fr;
+  grid-template-areas:
+    "header  header"
+    "sidebar main";
+  min-height: 100vh;
+  max-width: 1160px;
+  margin: 0 auto;
+  background: var(--white);
+  border-left: var(--border);
+  border-right: var(--border);
+}
 
-        /* ============================================================
-           HEADER
-        ============================================================ */
-        .app-header {
-            grid-area: header;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 18px 28px;
-            background: var(--black);
-            color: var(--white);
-            border-bottom: var(--border);
-            position: sticky;
-            top: 0;
-            z-index: 20;
-        }
+/* ============================================================
+   HEADER
+============================================================ */
+.app-header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: var(--black);
+  color: var(--white);
+  border-bottom: var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: var(--header-h);
+}
 
-        .logo {
-            font-family: var(--font-display);
-            font-size: clamp(1.2rem, 3vw, 1.7rem);
-            font-weight: 800;
-            letter-spacing: 3px;
-            text-transform: uppercase;
-            color: var(--white);
-            /* Layered text shadow for depth */
-            text-shadow:
-                2px 2px 0 var(--cyan),
-                4px 4px 0 var(--pink);
-        }
+/* FIX: Toned down logo shadow — subtle depth, not circus */
+.logo {
+  font-family: var(--font-display);
+  font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+  font-weight: 800;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--white);
+  text-shadow: 2px 2px 0 rgba(0,212,255,0.5);
+}
 
-        .header-meta {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 
-        .lang-pill {
-            font-family: var(--font-mono);
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            border: 2px solid var(--gray-300);
-            color: var(--gray-300);
-            padding: 4px 10px;
-            cursor: pointer;
-            background: transparent;
-            transition: border-color 0.15s, color 0.15s;
-        }
-        .lang-pill.active {
-            border-color: var(--cyan);
-            color: var(--cyan);
-        }
-        .lang-pill:hover { border-color: var(--white); color: var(--white); }
+.lang-pill {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border: 1.5px solid rgba(255,255,255,0.25);
+  color: rgba(255,255,255,0.5);
+  padding: 4px 10px;
+  cursor: pointer;
+  background: transparent;
+  transition: all 0.15s;
+}
+.lang-pill.active { border-color: var(--cyan); color: var(--cyan); }
+.lang-pill:hover  { border-color: var(--white); color: var(--white); }
 
-        /* ============================================================
-           SIDEBAR — Settings
-        ============================================================ */
-        .app-sidebar {
-            grid-area: sidebar;
-            border-right: var(--border);
-            display: flex;
-            flex-direction: column;
-            background: var(--gray-100);
-            padding: 0;
-            /* sticky on desktop */
-            position: sticky;
-            top: 60px; /* header height */
-            height: calc(100vh - 60px);
-            overflow-y: auto;
-        }
+.btn-settings-mobile {
+  background: rgba(255,255,255,0.1);
+  border: 1.5px solid rgba(255,255,255,0.25);
+  color: var(--white);
+  width: 36px; height: 36px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-settings-mobile:hover { background: rgba(255,255,255,0.2); }
 
-        .sidebar-section {
-            padding: 20px 20px 16px;
-            border-bottom: var(--border);
-        }
-        .sidebar-section:last-child { border-bottom: none; flex: 1; }
+/* ============================================================
+   SIDEBAR
+============================================================ */
+.app-sidebar {
+  grid-area: sidebar;
+  border-right: var(--border);
+  background: var(--gray-50);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: var(--header-h);
+  height: calc(100vh - var(--header-h));
+  overflow-y: auto;
+}
 
-        .sidebar-title {
-            font-family: var(--font-display);
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 2.5px;
-            text-transform: uppercase;
-            color: var(--gray-500);
-            margin-bottom: 14px;
-        }
+.sidebar-section {
+  padding: 18px;
+  border-bottom: var(--border-sm);
+}
+.sidebar-section:last-child { border-bottom: none; }
 
-        /* ============================================================
-           FORM ELEMENTS
-        ============================================================ */
-        .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-        .form-group:last-child { margin-bottom: 0; }
+.sidebar-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--gray-400);
+  margin-bottom: 14px;
+}
 
-        label {
-            font-family: var(--font-mono);
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            color: var(--gray-500);
-        }
+/* ============================================================
+   FORM ELEMENTS
+============================================================ */
+.form-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+.form-group:last-child { margin-bottom: 0; }
 
-        select, input[type="number"] {
-            width: 100%;
-            padding: 10px 12px;
-            border: var(--border);
-            background: var(--white);
-            font-family: var(--font-mono);
-            font-size: 13px;
-            font-weight: 700;
-            color: var(--black);
-            appearance: none;
-            -webkit-appearance: none;
-            cursor: pointer;
-            transition: box-shadow 0.15s;
-        }
-        select:focus, input:focus {
-            outline: none;
-            box-shadow: var(--shadow-s);
-        }
+label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--gray-500);
+}
 
-        .select-wrap {
-            position: relative;
-        }
-        .select-wrap::after {
-            content: '▾';
-            position: absolute;
-            right: 12px; top: 50%;
-            transform: translateY(-50%);
-            pointer-events: none;
-            font-size: 14px;
-        }
+/* FIX: API key input styled consistently — no longer an alien element */
+.api-key-wrap {
+  position: relative;
+}
+.api-key-wrap input {
+  padding-right: 36px;
+}
+.api-key-eye {
+  position: absolute;
+  right: 10px; top: 50%;
+  transform: translateY(-50%);
+  background: none; border: none;
+  cursor: pointer;
+  color: var(--gray-400);
+  line-height: 1;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+.api-key-eye:hover { color: var(--black); }
 
-        /* Accent tag grid */
-        .accent-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 6px;
-        }
+input[type="password"],
+input[type="text"],
+input[type="number"],
+select {
+  width: 100%;
+  padding: 9px 12px;
+  border: var(--border-sm);
+  background: var(--white);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--black);
+  appearance: none;
+  -webkit-appearance: none;
+  transition: box-shadow 0.15s;
+}
+input:focus, select:focus {
+  outline: none;
+  box-shadow: var(--shadow-s);
+}
 
-        .accent-tag {
-            padding: 8px 4px;
-            border: var(--border);
-            background: var(--white);
-            font-family: var(--font-mono);
-            font-size: 11px;
-            font-weight: 700;
-            text-align: center;
-            cursor: pointer;
-            transition: background 0.1s, box-shadow 0.1s, transform 0.1s;
-            user-select: none;
-        }
-        .accent-tag:hover { background: var(--gray-100); }
-        .accent-tag.selected {
-            background: var(--yellow);
-            box-shadow: var(--shadow-s);
-        }
-        .accent-tag:active { transform: translate(2px, 2px); box-shadow: none; }
+/* FIX: Hint text legible but clearly secondary */
+.field-hint {
+  font-size: 11px;
+  color: var(--gray-400);
+  line-height: 1.5;
+  font-family: var(--font-mono);
+}
 
-        /* Interval stepper */
-        .stepper {
-            display: flex;
-            align-items: stretch;
-            border: var(--border);
-        }
-        .stepper button {
-            width: 40px;
-            background: var(--white);
-            border: none;
-            border-right: var(--border);
-            font-size: 18px;
-            font-weight: 700;
-            cursor: pointer;
-            flex-shrink: 0;
-            transition: background 0.1s;
-        }
-        .stepper button:last-child { border-right: none; border-left: var(--border); }
-        .stepper button:hover { background: var(--yellow); }
-        .stepper input {
-            flex: 1;
-            border: none;
-            text-align: center;
-            padding: 10px 0;
-            font-family: var(--font-mono);
-            font-size: 15px;
-            font-weight: 700;
-        }
-        .stepper input:focus { outline: none; box-shadow: none; }
-        /* Hide native browser number spinners */
-        .stepper input[type="number"]::-webkit-inner-spin-button,
-        .stepper input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-        .stepper input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+/* FIX: Key status indicator inside input area */
+.key-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--gray-400);
+  margin-top: 4px;
+}
+.key-status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--gray-200);
+  flex-shrink: 0;
+}
+.key-status.ok .key-status-dot { background: var(--green); }
+.key-status.ok { color: var(--green); }
 
-        /* ============================================================
-           MAIN AREA
-        ============================================================ */
-        .app-main {
-            grid-area: main;
-            display: flex;
-            flex-direction: column;
-            gap: 0;
-        }
+.select-wrap {
+  position: relative;
+}
+.select-wrap::after {
+  content: '▾';
+  position: absolute;
+  right: 10px; top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  font-size: 12px;
+  color: var(--gray-500);
+}
 
-        /* Input zone */
-        .input-zone {
-            padding: 24px 28px;
-            border-bottom: var(--border);
-            background: var(--white);
-        }
+/* Stepper */
+.stepper {
+  display: flex;
+  align-items: stretch;
+  border: var(--border-sm);
+}
+.stepper button {
+  width: 38px;
+  background: var(--gray-100);
+  border: none;
+  border-right: var(--border-sm);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.1s;
+}
+.stepper button:last-child { border-right: none; border-left: var(--border-sm); }
+.stepper button:hover { background: var(--yellow); }
+.stepper input {
+  flex: 1;
+  border: none;
+  text-align: center;
+  padding: 9px 0;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+}
+.stepper input:focus { outline: none; box-shadow: none; }
+.stepper input[type="number"]::-webkit-inner-spin-button,
+.stepper input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
+.stepper input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 
-        .zone-label {
-            font-family: var(--font-mono);
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 1.5px;
-            text-transform: uppercase;
-            color: var(--gray-500);
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .zone-label::before {
-            content: '';
-            display: inline-block;
-            width: 8px; height: 8px;
-            background: var(--yellow);
-            border: 2px solid var(--black);
-            flex-shrink: 0;
-        }
+/* ============================================================
+   MAIN
+============================================================ */
+.app-main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+}
 
-        textarea {
-            width: 100%;
-            padding: 14px 16px;
-            border: var(--border);
-            background: var(--gray-100);
-            font-family: var(--font-mono);
-            font-size: 14px;
-            line-height: 1.8;
-            color: var(--black);
-            resize: vertical;
-            min-height: 140px;
-            transition: background 0.2s, box-shadow 0.2s;
-        }
-        textarea:focus {
-            outline: none;
-            background: var(--white);
-            box-shadow: var(--shadow-s);
-        }
-        textarea::placeholder { color: var(--gray-500); }
+/* Input zone */
+.input-zone {
+  padding: 20px 24px;
+  border-bottom: var(--border-sm);
+  background: var(--white);
+}
 
-        /* Control strip */
-        .control-strip {
-            padding: 16px 28px;
-            border-bottom: var(--border);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
-            background: var(--white);
-        }
+.zone-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--gray-500);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.zone-label::before {
+  content: '';
+  width: 7px; height: 7px;
+  background: var(--yellow);
+  border: 1.5px solid var(--black);
+  flex-shrink: 0;
+}
 
-        /* Status badge */
-        .status-badge {
-            font-family: var(--font-mono);
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            padding: 6px 12px;
-            border: var(--border);
-            margin-left: auto;
-            white-space: nowrap;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .status-dot {
-            width: 8px; height: 8px;
-            border-radius: 50%;
-            background: var(--gray-300);
-            flex-shrink: 0;
-        }
-        .status-badge[data-state="s_ready"]   .status-dot { background: var(--green); }
-        .status-badge[data-state="s_syncing"] .status-dot { background: var(--yellow); animation: blink 0.8s infinite; }
-        .status-badge[data-state="s_audio_ready"] .status-dot { background: var(--cyan); }
-        .status-badge[data-state="s_playing"]  .status-dot { background: var(--cyan); animation: blink 0.5s infinite; }
-        .status-badge[data-state="s_listening"] .status-dot { background: var(--cyan); animation: blink 0.5s infinite; }
-        .status-badge[data-state="s_your_turn"] .status-dot { background: var(--pink); animation: blink 0.6s infinite; }
-        .status-badge[data-state="s_error"]    .status-dot { background: var(--pink); }
-        .status-badge[data-state="s_finished"] .status-dot { background: var(--green); }
+textarea {
+  width: 100%;
+  padding: 12px 14px;
+  border: var(--border-sm);
+  background: var(--gray-50);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--black);
+  resize: vertical;
+  min-height: 130px;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+textarea:focus {
+  outline: none;
+  background: var(--white);
+  box-shadow: var(--shadow-s);
+}
+textarea::placeholder { color: var(--gray-400); }
 
-        @keyframes blink {
-            0%, 100% { opacity: 1; }
-            50%       { opacity: 0.2; }
-        }
+/* ============================================================
+   CONTROL STRIP — FIX: clearer visual hierarchy
+============================================================ */
+.control-strip {
+  padding: 14px 24px;
+  border-bottom: var(--border-sm);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: var(--white);
+}
 
-        /* Action buttons */
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 7px;
-            padding: 11px 18px;
-            border: var(--border);
-            font-family: var(--font-display);
-            font-size: 13px;
-            font-weight: 800;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            cursor: pointer;
-            color: var(--black);
-            box-shadow: var(--shadow-s);
-            transition: transform 0.08s, box-shadow 0.08s;
-            white-space: nowrap;
-            background: var(--white);
-        }
-        .btn:active:not(:disabled) {
-            transform: translate(3px, 3px);
-            box-shadow: none;
-        }
-        .btn:disabled {
-            background: var(--gray-100) !important;
-            color: var(--gray-500) !important;
-            box-shadow: none;
-            cursor: not-allowed;
-            opacity: 0.7;
-        }
-        .btn-generate { background: var(--yellow); }
-        .btn-play     { background: var(--cyan); }
-        .btn-download { background: var(--pink); }
+/* FIX: Toast-style inline error — no more alert() */
+.toast-bar {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: #FFF0F0;
+  border: 1.5px solid var(--pink);
+  border-left: 4px solid var(--pink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: #C0003A;
+  width: 100%;
+  order: 10;
+}
+.toast-bar.visible { display: flex; }
+.toast-bar-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #C0003A;
+  font-size: 16px;
+  line-height: 1;
+}
 
-        /* Loading spinner inside btn */
-        .spinner {
-            display: none;
-            width: 16px; height: 16px;
-            border: 2.5px solid transparent;
-            border-top-color: var(--black);
-            border-radius: 50%;
-            animation: spin 0.7s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .is-loading .spinner { display: block; }
-        .is-loading .btn-icon-svg { display: none; }
+/* FIX: Buttons — Generate is clearly primary */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 16px;
+  border: var(--border-sm);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: var(--black);
+  box-shadow: var(--shadow-s);
+  transition: transform 0.08s, box-shadow 0.08s;
+  white-space: nowrap;
+  background: var(--white);
+}
+.btn:active:not(:disabled) {
+  transform: translate(3px, 3px);
+  box-shadow: none;
+}
+.btn:disabled {
+  background: var(--gray-100) !important;
+  color: var(--gray-400) !important;
+  box-shadow: none;
+  cursor: not-allowed;
+}
 
-        /* ============================================================
-           OUTPUT / READ BOARD
-        ============================================================ */
-        .output-zone {
-            flex: 1;
-            padding: 24px 28px;
-            background: var(--black);
-            min-height: 200px;
-        }
+/* Primary action: prominent yellow */
+.btn-generate { background: var(--yellow); }
 
-        .output-inner {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
+/* Secondary: outlined style for play/download — less competing weight */
+.btn-play, .btn-download {
+  background: var(--white);
+  box-shadow: var(--shadow-s);
+}
+.btn-play:not(:disabled):hover     { background: var(--cyan); }
+.btn-download:not(:disabled):hover { background: var(--pink); }
 
-        .empty-state {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-            min-height: 180px;
-            opacity: 0.3;
-            color: var(--white);
-            font-family: var(--font-mono);
-            font-size: 12px;
-            text-align: center;
-            letter-spacing: 1px;
-        }
-        .empty-state svg { opacity: 0.6; }
+.spinner {
+  display: none;
+  width: 14px; height: 14px;
+  border: 2px solid transparent;
+  border-top-color: var(--black);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.is-loading .spinner    { display: block; }
+.is-loading .btn-icon   { display: none; }
 
-        .text-line {
-            display: block;
-            color: rgba(255,255,255,0.35);
-            font-family: var(--font-mono);
-            font-size: clamp(14px, 2.5vw, 18px);
-            line-height: 1.9;
-            padding: 6px 12px 6px 16px;
-            border-left: 3px solid transparent;
-            transition: color 0.2s, border-color 0.2s, background 0.2s;
-            border-radius: 0;
-        }
-        .text-line.active {
-            color: var(--yellow);
-            border-left-color: var(--pink);
-            background: rgba(255, 214, 0, 0.06);
-            font-weight: 700;
-        }
+/* FIX: Status badge — lowercase, softer, smaller footprint */
+.status-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 6px 12px;
+  border: var(--border-sm);
+  margin-left: auto;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--gray-50);
+  text-transform: none;
+}
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--gray-200);
+  flex-shrink: 0;
+}
+.status-badge[data-state="s_ready"]       .status-dot { background: var(--green); }
+.status-badge[data-state="s_syncing"]     .status-dot { background: var(--yellow); animation: blink 0.8s infinite; }
+.status-badge[data-state="s_audio_ready"] .status-dot { background: var(--cyan); }
+.status-badge[data-state="s_playing"]     .status-dot { background: var(--cyan); animation: blink 0.5s infinite; }
+.status-badge[data-state="s_your_turn"]   .status-dot { background: var(--pink); animation: blink 0.6s infinite; }
+.status-badge[data-state="s_error"]       .status-dot { background: var(--pink); }
+.status-badge[data-state="s_finished"]    .status-dot { background: var(--green); }
+.status-badge[data-state="s_paused"]      .status-dot { background: var(--yellow); }
 
-        /* ============================================================
-           FOOTER
-        ============================================================ */
-        .app-footer {
-            grid-area: footer;
-            padding: 12px 20px;
-            border-top: var(--border);
-            border-right: var(--border);
-            background: var(--gray-100);
-            font-family: var(--font-mono);
-            font-size: 10px;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            color: var(--gray-500);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
+@keyframes blink {
+  0%,100% { opacity: 1; }
+  50%      { opacity: 0.2; }
+}
 
-        audio { display: none; }
+/* ============================================================
+   FIX: Progress bar — taller and more visible
+============================================================ */
+.progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 24px;
+  height: 28px;
+  border-bottom: var(--border-sm);
+  background: var(--white);
+}
+.progress-track {
+  flex: 1;
+  height: 6px;          /* FIX: was 4px */
+  background: var(--gray-200);
+  position: relative;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--cyan);
+  width: 0%;
+  transition: width 0.1s linear;
+}
+.progress-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--gray-400);
+  min-width: 80px;
+  text-align: right;
+  letter-spacing: 0.5px;
+}
 
-        /* ============================================================
-           MOBILE — single column, bottom sheet settings
-        ============================================================ */
-        @media (max-width: 768px) {
-            .app-shell {
-                grid-template-columns: 1fr;
-                grid-template-rows: auto auto 1fr auto;
-                grid-template-areas:
-                    "header"
-                    "main"
-                    "main"
-                    "footer";
-                border: none;
-            }
+/* ============================================================
+   OUTPUT / READ BOARD
+   FIX: Improved text contrast — was rgba(255,255,255,0.35), now 0.55+
+============================================================ */
+.output-zone {
+  flex: 1;
+  padding: 20px 24px;
+  background: #0F0F0F;
+  min-height: 200px;
+}
 
-            .app-sidebar {
-                display: none; /* hidden, replaced by bottom sheet */
-                position: fixed;
-                inset: 0;
-                top: auto;
-                height: auto;
-                max-height: 80vh;
-                z-index: 100;
-                border-right: none;
-                border-top: var(--border);
-                overflow-y: auto;
-                overscroll-behavior: contain;
-                background: var(--white);
-            }
-            .app-sidebar.open {
-                display: flex;
-                flex-direction: column;
-                animation: slideUp 0.25s ease-out;
-            }
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 180px;
+  color: rgba(255,255,255,0.25);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: center;
+  letter-spacing: 1px;
+}
 
-            @keyframes slideUp {
-                from { transform: translateY(100%); opacity: 0; }
-                to   { transform: translateY(0); opacity: 1; }
-            }
+/* FIX: line items are now clickable (seek to that sentence) */
+.text-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  color: rgba(255,255,255,0.55);  /* FIX: up from 0.35 */
+  font-family: var(--font-mono);
+  font-size: clamp(13px, 2vw, 16px);
+  line-height: 1.9;
+  padding: 5px 12px 5px 14px;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  border-radius: 0;
+  transition: color 0.18s, border-color 0.18s, background 0.18s;
+}
+.text-line:hover {
+  color: rgba(255,255,255,0.8);
+  background: rgba(255,255,255,0.04);
+}
+.text-line.active {
+  color: var(--yellow);
+  border-left-color: var(--pink);
+  background: rgba(255, 214, 0, 0.07);
+  font-weight: 700;
+}
+.line-num {
+  font-size: 10px;
+  color: rgba(255,255,255,0.2);
+  min-width: 20px;
+  text-align: right;
+  flex-shrink: 0;
+  user-select: none;
+}
+.text-line.active .line-num { color: rgba(255, 214, 0, 0.5); }
 
-            /* Mobile backdrop */
-            .mobile-backdrop {
-                display: none;
-                position: fixed;
-                inset: 0;
-                background: rgba(0,0,0,0.5);
-                z-index: 99;
-                backdrop-filter: blur(2px);
-            }
-            .mobile-backdrop.open { display: block; }
+/* ============================================================
+   MOBILE
+============================================================ */
+@media (max-width: 768px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: var(--header-h) 1fr;
+    grid-template-areas:
+      "header"
+      "main";
+    border: none;
+  }
 
-            .input-zone  { padding: 16px; }
-            .control-strip { padding: 12px 16px; flex-wrap: wrap; }
-            .output-zone { padding: 16px; }
+  .app-sidebar {
+    display: none;
+    position: fixed;
+    inset: 0;
+    top: auto;
+    height: auto;
+    max-height: 82vh;
+    z-index: 100;
+    border-right: none;
+    border-top: var(--border);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--white);
+  }
+  .app-sidebar.open {
+    display: flex;
+    flex-direction: column;
+    animation: slideUp 0.22s ease-out;
+  }
+  @keyframes slideUp {
+    from { transform: translateY(100%); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+  }
 
-            .btn { padding: 12px 14px; font-size: 12px; }
-            .status-badge { margin-left: 0; width: 100%; justify-content: center; }
+  .mobile-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 99;
+    backdrop-filter: blur(2px);
+  }
+  .mobile-backdrop.open { display: block; }
 
-            .btn-generate { flex: 1 1 100%; }
-            .btn-play, .btn-download { flex: 1; }
+  .sheet-handle {
+    display: flex;
+    justify-content: center;
+    padding: 10px;
+    border-bottom: var(--border-sm);
+  }
+  .sheet-handle-bar {
+    width: 36px; height: 4px;
+    background: var(--gray-200);
+    border-radius: 2px;
+  }
 
-            .control-strip { gap: 8px; }
+  .input-zone, .output-zone { padding: 14px 16px; }
+  .control-strip { padding: 10px 16px; }
+  .progress-wrap { padding: 0 16px; }
 
-            .app-footer { display: none; }
+  .btn-generate { flex: 1 1 100%; }
+  .btn-play, .btn-download { flex: 1; }
+  .status-badge { margin-left: 0; width: 100%; justify-content: center; }
+  .btn-settings-mobile { display: flex !important; }
+}
+@media (min-width: 769px) {
+  .sheet-handle { display: none; }
+}
 
-            /* Handle in bottom sheet */
-            .sheet-handle {
-                display: flex;
-                justify-content: center;
-                padding: 12px;
-                border-bottom: var(--border);
-            }
-            .sheet-handle-bar {
-                width: 40px; height: 4px;
-                background: var(--gray-300);
-                border-radius: 2px;
-            }
-
-            /* Mobile settings toggle in header */
-            .btn-settings-mobile { display: flex !important; }
-        }
-
-        @media (min-width: 769px) {
-            .btn-settings-mobile { display: none !important; }
-            .sheet-handle { display: none; }
-        }
-
-        /* Settings button (mobile only) */
-        .btn-settings-mobile {
-            background: rgba(255,255,255,0.12);
-            border: 2px solid rgba(255,255,255,0.3);
-            color: var(--white);
-            width: 40px; height: 40px;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            flex-shrink: 0;
-            transition: background 0.15s;
-        }
-        .btn-settings-mobile:hover { background: rgba(255,255,255,0.2); }
-
-        /* ============================================================
-           PROGRESS BAR (audio progress)
-        ============================================================ */
-        .progress-track {
-            width: 100%;
-            height: 4px;
-            background: rgba(255,255,255,0.1);
-            position: relative;
-            overflow: hidden;
-            margin-top: 0;
-        }
-        .progress-fill {
-            height: 100%;
-            background: var(--cyan);
-            width: 0%;
-            transition: width 0.1s linear;
-        }
-
-    </style>
+audio { display: none; }
+</style>
 </head>
 <body>
 
-<!-- Mobile backdrop -->
 <div class="mobile-backdrop" id="mobileBackdrop" onclick="closeSidebar()"></div>
 
 <div class="app-shell">
 
-    <!-- ── HEADER ── -->
-    <header class="app-header">
-        <span class="logo">Shadow Reader</span>
-        <div class="header-meta">
-            <button class="lang-pill active" id="langEN" onclick="setLang('en')">EN</button>
-            <button class="lang-pill"        id="langZH" onclick="setLang('zh')">中文</button>
-            <!-- Mobile settings icon -->
-            <button class="btn-settings-mobile" onclick="openSidebar()" aria-label="Open settings">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                    <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                </svg>
-            </button>
-        </div>
-    </header>
+  <!-- HEADER -->
+  <header class="app-header">
+    <span class="logo">Shadow Reader</span>
+    <div class="header-right">
+      <button class="lang-pill active" id="langEN" onclick="setLang('en')">EN</button>
+      <button class="lang-pill"        id="langZH" onclick="setLang('zh')">中文</button>
+      <button class="btn-settings-mobile" onclick="openSidebar()" aria-label="Settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
 
-    <!-- ── SIDEBAR / SETTINGS ── -->
-    <aside class="app-sidebar" id="appSidebar" role="complementary" aria-label="Settings">
-        <!-- mobile drag handle -->
-        <div class="sheet-handle">
-            <div class="sheet-handle-bar"></div>
-        </div>
+  <!-- SIDEBAR -->
+  <aside class="app-sidebar" id="appSidebar">
+    <div class="sheet-handle"><div class="sheet-handle-bar"></div></div>
 
-        <div class="sidebar-section">
-            <p class="sidebar-title" data-i18n="settingsTitle">Configuration</p>
+    <div class="sidebar-section">
+    <p class="sidebar-title" data-i18n="settingsTitle">偏好设置</p>
+ 
+    <div class="form-group">
+      <label data-i18n="providerLabel">服务商</label>
+      <div class="select-wrap">
+        <select id="providerSelect" onchange="onProviderChange()">
+          <optgroup id="optgroupPaid" label="付费服务商（需要 API Key）">
+            <option value="openai">OpenAI</option>
+            <option value="siliconflow">硅基流动 SiliconFlow</option>
+            <option value="dashscope">阿里云 DashScope</option>
+            <option value="volcengine">火山引擎 Volcengine</option>
+            <option value="azure">微软 Azure TTS</option>
+          </optgroup>
+          <optgroup id="optgroupFree" label="免费服务商（无需 API Key）">
+            <option value="edge-tts">Edge TTS ★ 推荐</option>
+            <option value="gtts">gTTS (Google)</option>
+            <option value="pyttsx3">pyttsx3（离线）</option>
+          </optgroup>
+        </select>
+      </div>
+    </div>
+ 
+    <div class="form-group" id="apiKeyGroup">
+      <label data-i18n="apiKeyLabel">API 密钥 / 凭证</label>
+      <div class="api-key-wrap">
+        <input type="password" id="apiKeyInput" placeholder="sk-..."
+               oninput="onApiKeyChange()" autocomplete="off">
+        <button class="api-key-eye" onclick="toggleKeyVisibility()" type="button">...</button>
+      </div>
+      <p id="credHint" class="field-hint" style="display:none"
+         data-i18n="credJsonHint">此服务商需填写 JSON 格式凭证，请参考占位符示例。</p>
+      <div class="key-status" id="keyStatus">
+        <span class="key-status-dot"></span>
+        <span id="keyStatusText" data-i18n="keyEmpty">尚未输入凭证</span>
+      </div>
+    </div>
+ 
+    <div class="form-group">
+      <label data-i18n="voiceLabel">朗读音色</label>
+      <div class="select-wrap">
+        <select id="voiceSelect" onchange="saveSettings()"></select>
+      </div>
+    </div>
+ 
+    <div class="form-group">
+      <label data-i18n="langFilterLabel">按语言筛选音色</label>
+      <div class="select-wrap">
+        <select id="langFilter" onchange="applyVoiceFilter()">
+          <option value="all"   data-i18n="langAll">全部语言</option>
+          <option value="en"    data-i18n="langEn">仅英文</option>
+          <option value="zh"    data-i18n="langZh">仅中文</option>
+          <option value="zh/en" data-i18n="langBilingual">中英双语</option>
+        </select>
+      </div>
+    </div>
+ 
+    <div class="form-group">
+      <label data-i18n="pauseLabel">跟读等待时间（秒）</label>
+      <div class="stepper">
+        <button type="button" onclick="stepInterval(-0.5)">−</button>
+        <input type="number" id="intervalInput" min="0" max="10" step="0.5" value="2"
+               onchange="saveSettings()">
+        <button type="button" onclick="stepInterval(0.5)">+</button>
+      </div>
+    </div>
+  </div>
+ 
+  <div class="sidebar-section">
+    <p class="sidebar-title" data-i18n="aboutTitle">关于</p>
+    <p style="font-size:12px;line-height:1.8;color:var(--gray-500);font-family:var(--font-mono);"
+       data-i18n="aboutText">
+      跟读训练法：先听一遍范读，在暂停窗口内立即模仿复述，反复强化发音与语调。
+    </p>
+  </div>
+  </aside>
 
-            <div class="form-group">
-                <label data-i18n="accentLabel">Accent</label>
-                <div class="accent-grid" id="accentGrid">
-                    <div class="accent-tag selected" data-accent="US" onclick="selectAccent(this)">🇺🇸 US</div>
-                    <div class="accent-tag"           data-accent="UK" onclick="selectAccent(this)">🇬🇧 UK</div>
-                    <div class="accent-tag"           data-accent="AU" onclick="selectAccent(this)">🇦🇺 AU</div>
-                </div>
-            </div>
+  <!-- MAIN -->
+  <main class="app-main">
 
-            <div class="form-group">
-                <label data-i18n="pauseLabel">Pause Interval (sec)</label>
-                <div class="stepper">
-                    <button type="button" onclick="stepInterval(-0.5)" aria-label="Decrease">−</button>
-                    <input type="number" id="intervalInput" min="0" max="10" step="0.5" value="2" aria-label="Pause interval in seconds">
-                    <button type="button" onclick="stepInterval(0.5)" aria-label="Increase">+</button>
-                </div>
-            </div>
-        </div>
-
-        <div class="sidebar-section">
-            <p class="sidebar-title">About</p>
-            <p style="font-size:12px; line-height:1.8; color:var(--gray-500); font-family:var(--font-mono);">
-                Shadow reading trains pronunciation by listening to a phrase and repeating it during the pause.
-            </p>
-        </div>
-    </aside>
-
-    <!-- ── MAIN ── -->
-    <main class="app-main">
-
-        <!-- Input zone -->
-        <section class="input-zone">
-            <p class="zone-label" data-i18n="inputLabel">Input Text — one line per sentence</p>
-            <textarea
-                id="textInput"
-                placeholder="Apple&#10;Banana&#10;How are you doing today?"
-                aria-label="Text to read aloud"
-            >Apple
+    <section class="input-zone">
+      <p class="zone-label">
+        <span data-i18n="inputLabel">Input — one sentence per line</span>
+      </p>
+      <textarea id="textInput"
+        placeholder="Apple&#10;Banana&#10;How are you doing today?"
+        aria-label="Text to read aloud"
+      >Apple
 Banana
 How are you doing today?</textarea>
-        </section>
+    </section>
 
-        <!-- Control strip -->
-        <div class="control-strip" role="toolbar" aria-label="Playback controls">
+    <!-- Control strip -->
+    <div class="control-strip" role="toolbar">
 
-            <button class="btn btn-generate" id="syncBtn" onclick="generateAudio()" aria-label="Generate audio">
-                <span class="spinner" aria-hidden="true"></span>
-                <svg class="btn-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
-                <span data-i18n="generateBtn">Generate Audio</span>
-            </button>
+      <!-- FIX: Generate is visually dominant (yellow + wider) -->
+      <button class="btn btn-generate" id="syncBtn" onclick="generateAudio()" aria-label="Generate audio">
+        <span class="spinner" aria-hidden="true"></span>
+        <svg class="btn-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+          <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+        </svg>
+        <span data-i18n="generateBtn">Generate Audio</span>
+      </button>
 
-            <button class="btn btn-play" id="playBtn" onclick="togglePlay()" disabled aria-label="Play">
-                <svg id="playIcon" class="btn-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <polygon points="5,3 19,12 5,21"></polygon>
-                </svg>
-                <span id="playText" data-i18n="playBtn">Play</span>
-            </button>
+      <button class="btn btn-play" id="playBtn" onclick="togglePlay()" disabled aria-label="Play/Pause">
+        <svg id="playIcon" class="btn-icon" width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5,3 19,12 5,21"/>
+        </svg>
+        <span id="playText" data-i18n="playBtn">Play</span>
+      </button>
 
-            <button class="btn btn-download" id="downloadBtn" onclick="downloadAudio()" disabled aria-label="Download MP3">
-                <svg class="btn-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M21 15v4H3v-4M7 10l5 5 5-5M12 15V3"/></svg>
-                <span data-i18n="downloadBtn">Download</span>
-            </button>
+      <button class="btn btn-download" id="downloadBtn" onclick="downloadAudio()" disabled aria-label="Download MP3">
+        <svg class="btn-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+          <path d="M21 15v4H3v-4M7 10l5 5 5-5M12 15V3"/>
+        </svg>
+        <span data-i18n="downloadBtn">Download</span>
+      </button>
 
-            <div class="status-badge" id="statusBadge" data-state="s_ready" role="status" aria-live="polite">
-                <span class="status-dot" aria-hidden="true"></span>
-                <span id="statusText" data-i18n="s_ready">SYSTEM READY</span>
-            </div>
+      <div class="status-badge" id="statusBadge" data-state="s_ready" role="status" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="statusText" data-i18n="s_ready">Ready</span>
+      </div>
+
+      <!-- FIX: Inline toast error — no alert() -->
+      <div class="toast-bar" id="toastBar" role="alert" aria-live="assertive">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span id="toastMsg"></span>
+        <button class="toast-bar-close" onclick="closeToast()" aria-label="Dismiss error">✕</button>
+      </div>
+    </div>
+
+    <!-- FIX: Progress with time display -->
+    <div class="progress-wrap" aria-hidden="true">
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-time" id="progressTime">0:00 / 0:00</div>
+    </div>
+
+    <!-- Output / read board -->
+    <!-- FIX: Lines are clickable to seek -->
+    <section class="output-zone" aria-label="Synchronized text">
+      <div id="readBoard">
+        <div class="empty-state">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <path d="M2 12h4l3-9 5 18 3-9h5"/>
+          </svg>
+          <span data-i18n="emptyBoard">Synced lines will appear here</span>
         </div>
+      </div>
+    </section>
 
-        <!-- Progress bar -->
-        <div class="progress-track" aria-hidden="true">
-            <div class="progress-fill" id="progressFill"></div>
-        </div>
-
-        <!-- Output read board -->
-        <section class="output-zone" aria-label="Synchronized text display">
-            <div class="output-inner" id="readBoard">
-                <div class="empty-state">
-                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 12h4l3-9 5 18 3-9h5"/></svg>
-                    <span data-i18n="emptyBoard">Synced lines will appear here</span>
-                </div>
-            </div>
-        </section>
-
-    </main>
-
-    <!-- ── FOOTER (desktop) ── -->
-    <footer class="app-footer">
-        <span>Shadow Reader v2.0</span>
-        <span data-i18n="footerNote">Listen · Pause · Repeat</span>
-    </footer>
-
+  </main>
 </div>
 
 <audio id="audioPlayer"></audio>
@@ -742,117 +837,282 @@ How are you doing today?</textarea>
    i18n
 ================================================================ */
 const dict = {
-    en: {
-        settingsTitle: "Configuration",
-        accentLabel:   "Pronunciation Accent",
-        pauseLabel:    "Pause Interval (sec)",
-        inputLabel:    "Input Text — one line per sentence",
-        generateBtn:   "Generate Audio",
-        playBtn:       "Play",
-        pauseBtn:      "Pause",
-        downloadBtn:   "Download",
-        emptyBoard:    "Synced lines will appear here",
-        footerNote:    "Listen · Pause · Repeat",
-        s_ready:       "READY",
-        s_syncing:     "GENERATING...",
-        s_audio_ready: "AUDIO READY",
-        s_error:       "GENERATION FAILED",
-        s_playing:     "PLAYING",
-        s_paused:      "PAUSED",
-        s_finished:    "FINISHED",
-        s_your_turn:   "YOUR TURN",
-        s_listening:   "LISTENING",
-    },
-    zh: {
-        settingsTitle: "偏好设置",
-        accentLabel:   "发音口音",
-        pauseLabel:    "跟读等待时间 (秒)",
-        inputLabel:    "输入文本 — 每行一个句子",
-        generateBtn:   "生成音频",
-        playBtn:       "开始播放",
-        pauseBtn:      "暂停",
-        downloadBtn:   "导出 MP3",
-        emptyBoard:    "生成后，跟读字幕将在此显示",
-        footerNote:    "听 · 停 · 跟读",
-        s_ready:       "就绪",
-        s_syncing:     "合成中…",
-        s_audio_ready: "已就绪",
-        s_error:       "生成失败",
-        s_playing:     "领读中",
-        s_paused:      "已暂停",
-        s_finished:    "已完成",
-        s_your_turn:   "跟读中…",
-        s_listening:   "正在领读",
-    }
+  en: {
+    // ── 顶部 / 通用 ──────────────────────────────────────────────
+    settingsTitle:    "Configuration",
+    aboutTitle:       "About",
+    aboutText:        "Shadow reading trains pronunciation by listening to each phrase, then repeating it during the pause window.",
+ 
+    // ── 凭证区 ───────────────────────────────────────────────────
+    apiKeyLabel:      "API Key / Credentials",
+    keyEmpty:         "No credentials entered",
+    keySet:           "Credentials saved locally",
+    keyFree:          "✓ No API Key required",
+    credJsonHint:     "This provider requires JSON credentials.",
+ 
+    // ── Provider & Voice ─────────────────────────────────────────
+    providerLabel:    "Provider",
+    optgroupPaid:     "Paid (API Key required)",
+    optgroupFree:     "Free (no API Key)",
+    voiceLabel:       "Voice",
+    voiceEmpty:       "— No voices match this filter —",
+    langFilterLabel:  "Filter by language",
+    langAll:          "All languages",
+    langEn:           "English only",
+    langZh:           "Chinese only",
+    langBilingual:    "Bilingual",
+ 
+    // ── 设置项 ───────────────────────────────────────────────────
+    pauseLabel:       "Pause interval (sec)",
+ 
+    // ── 主操作区 ─────────────────────────────────────────────────
+    inputLabel:       "Input — one sentence per line",
+    generateBtn:      "Generate Audio",
+    playBtn:          "Play",
+    pauseBtn:         "Pause",
+    downloadBtn:      "Download",
+ 
+    // ── 输出区 ───────────────────────────────────────────────────
+    emptyBoard:       "Synced lines will appear here",
+    seekHint:         "Click to seek",
+ 
+    // ── 状态徽章 ─────────────────────────────────────────────────
+    s_ready:          "Ready",
+    s_syncing:        "Generating…",
+    s_audio_ready:    "Audio ready",
+    s_error:          "Generation failed",
+    s_playing:        "Playing",
+    s_paused:         "Paused",
+    s_finished:       "Finished",
+    s_your_turn:      "Your turn",
+    s_listening:      "Listening",
+ 
+    // ── 页脚 ─────────────────────────────────────────────────────
+    footerNote:       "Listen · Pause · Repeat",
+  },
+ 
+  zh: {
+    // ── 顶部 / 通用 ──────────────────────────────────────────────
+    settingsTitle:    "偏好设置",
+    aboutTitle:       "关于",
+    aboutText:        "跟读训练法：先听一遍范读，在暂停窗口内立即模仿复述，反复强化发音与语调。", // ★ 补充
+ 
+    // ── 凭证区 ───────────────────────────────────────────────────
+    apiKeyLabel:      "API 密钥 / 凭证",                // ★ 补充
+    keyEmpty:         "尚未输入凭证",                    // ★ 完善（原：未输入密钥）
+    keySet:           "凭证已加密保存到本地浏览器",       // ★ 完善（原：密钥已保存到本地）
+    keyFree:          "✓ 无需 API Key，直接使用",        // ★ 新增（免费服务商专用）
+    credJsonHint:     "此服务商需填写 JSON 格式凭证，请参考占位符示例。", // ★ 新增
+ 
+    // ── Provider & Voice ─────────────────────────────────────────
+    providerLabel:    "服务商",                          // ★ 新增
+    optgroupPaid:     "付费服务商（需要 API Key）",       // ★ 新增
+    optgroupFree:     "免费服务商（无需 API Key）",       // ★ 新增
+    voiceLabel:       "朗读音色",
+    voiceEmpty:       "— 当前语言过滤下暂无可用音色 —",   // ★ 新增
+    langFilterLabel:  "按语言筛选音色",                   // ★ 新增
+    langAll:          "全部语言",                        // ★ 新增
+    langEn:           "仅英文",                          // ★ 新增
+    langZh:           "仅中文",                          // ★ 新增
+    langBilingual:    "中英双语",                        // ★ 新增
+ 
+    // ── 设置项 ───────────────────────────────────────────────────
+    pauseLabel:       "跟读等待时间（秒）",
+ 
+    // ── 主操作区 ─────────────────────────────────────────────────
+    inputLabel:       "输入文本 — 每行一个句子",
+    generateBtn:      "生成音频",
+    playBtn:          "开始播放",
+    pauseBtn:         "暂停",
+    downloadBtn:      "导出 MP3",
+ 
+    // ── 输出区 ───────────────────────────────────────────────────
+    emptyBoard:       "生成后，逐句字幕将在此同步显示",   // ★ 完善（原：生成后，跟读字幕将在此显示）
+    seekHint:         "点击跳转到这一句",                 // ★ 新增（行内 title 提示）
+ 
+    // ── 状态徽章 ─────────────────────────────────────────────────
+    s_ready:          "就绪",
+    s_syncing:        "合成中…",
+    s_audio_ready:    "音频已就绪",                      // ★ 完善（原：已就绪）
+    s_error:          "生成失败，请检查凭证或网络",        // ★ 完善（原：生成失败）
+    s_playing:        "领读中",
+    s_paused:         "已暂停",
+    s_finished:       "本轮已完成",                      // ★ 完善（原：已完成）
+    s_your_turn:      "轮到你跟读了",                    // ★ 完善（原：轮到你了）
+    s_listening:      "正在领读，请跟上",                 // ★ 完善（原：正在领读）
+ 
+    // ── 页脚 ─────────────────────────────────────────────────────
+    footerNote:       "听 · 停 · 跟读",
+  },
 };
 
-let lang = 'en';
+let lang = 'zh';
+function t(key) { return dict[lang][key] ?? key; }
 
 function setLang(l) {
-    lang = l;
-    document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
-    document.getElementById('langEN').classList.toggle('active', l === 'en');
-    document.getElementById('langZH').classList.toggle('active', l === 'zh');
-    document.querySelectorAll('[data-i18n]').forEach(el => {
-        const key = el.dataset.i18n;
-        if (dict[l][key] !== undefined) el.textContent = dict[l][key];
-    });
-    refreshStatus();
-    refreshPlayBtn();
+  lang = l;
+  document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
+  document.getElementById('langEN').classList.toggle('active', l === 'en');
+  document.getElementById('langZH').classList.toggle('active', l === 'zh');
+ 
+  // 静态 data-i18n 节点
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const k = el.dataset.i18n;
+    if (dict[l][k] !== undefined) el.textContent = dict[l][k];
+  });
+ 
+  // textarea placeholder
+  document.getElementById('textInput').placeholder =
+    l === 'zh' ? '苹果\n香蕉\n你今天好吗？' : 'Apple\nBanana\nHow are you doing today?';
+ 
+  // Provider 下拉菜单 optgroup 标签
+  const ogPaid = document.getElementById('optgroupPaid');
+  const ogFree = document.getElementById('optgroupFree');
+  if (ogPaid) ogPaid.label = t('optgroupPaid');
+  if (ogFree) ogFree.label = t('optgroupFree');
+ 
+  // 语言过滤下拉菜单选项文字
+  const filterMap = {
+    all:      'langAll',
+    en:       'langEn',
+    zh:       'langZh',
+    'zh/en':  'langBilingual',
+  };
+  document.querySelectorAll('#langFilter option').forEach(opt => {
+    const key = filterMap[opt.value];
+    if (key) opt.textContent = t(key);
+  });
+ 
+  // 音色为空时的占位提示（如果当前已渲染了空状态 option）
+  const emptyOpt = document.querySelector('#voiceSelect option[disabled]');
+  if (emptyOpt) emptyOpt.textContent = t('voiceEmpty');
+ 
+  // 所有行内 title（seekHint）
+  document.querySelectorAll('.text-line').forEach(el => {
+    el.title = t('seekHint');
+  });
+ 
+  refreshStatus();
+  refreshPlayBtn();
+  refreshKeyStatus();
 }
 
-function t(key) { return dict[lang][key] || key; }
-
 /* ================================================================
-   Settings sidebar (mobile = bottom sheet)
+   Sidebar
 ================================================================ */
 function openSidebar() {
-    document.getElementById('appSidebar').classList.add('open');
-    document.getElementById('mobileBackdrop').classList.add('open');
-    document.body.style.overflow = 'hidden';
+  document.getElementById('appSidebar').classList.add('open');
+  document.getElementById('mobileBackdrop').classList.add('open');
+  document.body.style.overflow = 'hidden';
 }
 function closeSidebar() {
-    document.getElementById('appSidebar').classList.remove('open');
-    document.getElementById('mobileBackdrop').classList.remove('open');
-    document.body.style.overflow = '';
+  document.getElementById('appSidebar').classList.remove('open');
+  document.getElementById('mobileBackdrop').classList.remove('open');
+  document.body.style.overflow = '';
 }
 
 /* ================================================================
-   Accent selector
+   FIX: API Key — show/hide + inline status
 ================================================================ */
-let selectedAccent = 'US';
-function selectAccent(el) {
-    document.querySelectorAll('.accent-tag').forEach(e => e.classList.remove('selected'));
-    el.classList.add('selected');
-    selectedAccent = el.dataset.accent;
+function toggleKeyVisibility() {
+  const inp = document.getElementById('apiKeyInput');
+  const ico = document.getElementById('eyeIcon');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    ico.innerHTML = `<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>`;
+  } else {
+    inp.type = 'password';
+    ico.innerHTML = `<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>`;
+  }
+}
+
+function onApiKeyChange() {
+  saveSettings();
+  refreshKeyStatus();
+}
+
+function refreshKeyStatus() {
+  const provider = document.getElementById('providerSelect').value;
+  const isFree   = FREE_PROVIDERS.has(provider);
+  const el       = document.getElementById('keyStatus');
+  const txt      = document.getElementById('keyStatusText');
+ 
+  if (isFree) {
+    el.classList.add('ok');
+    txt.textContent = '✓ 无需 API Key';
+    return;
+  }
+ 
+  const val    = document.getElementById('apiKeyInput').value.trim();
+  const hint   = _providersData?.credential_hints?.[provider];
+  const isJson = hint?.format === 'json';
+  let valid = false;
+  if (isJson) { try { JSON.parse(val); valid = val.length > 10; } catch {} }
+  else { valid = val.length >= 10; }
+ 
+  el.classList.toggle('ok', valid);
+  txt.textContent = valid ? '凭证已保存到本地' : (isJson ? '请输入 JSON 凭证' : '未输入密钥');
 }
 
 /* ================================================================
-   Interval stepper
+   FIX: Toast error — no more alert()
 ================================================================ */
+function showToast(msg) {
+  const bar = document.getElementById('toastBar');
+  document.getElementById('toastMsg').textContent = msg;
+  bar.classList.add('visible');
+}
+function closeToast() {
+  document.getElementById('toastBar').classList.remove('visible');
+}
+
+/* ================================================================
+   Settings
+================================================================ */
+function saveSettings() {
+  const provider = document.getElementById('providerSelect').value;
+  const voice    = document.getElementById('voiceSelect').value;
+
+  // ✅ key 按 provider 独立保存
+  localStorage.setItem(`sr_api_key_${provider}`, document.getElementById('apiKeyInput').value);
+  localStorage.setItem('sr_provider',             provider);
+  localStorage.setItem(`sr_voice_${provider}`,    voice);
+  localStorage.setItem('sr_interval',             document.getElementById('intervalInput').value);
+  localStorage.setItem('sr_lang_filter',          document.getElementById('langFilter').value);
+}
+
+function loadSettings() {
+  const key      = localStorage.getItem('sr_api_key');
+  const voice    = localStorage.getItem('sr_voice');
+  const interval = localStorage.getItem('sr_interval');
+  if (key)      document.getElementById('apiKeyInput').value    = key;
+  if (voice)    document.getElementById('voiceSelect').value    = voice;
+  if (interval) document.getElementById('intervalInput').value  = interval;
+}
+
 function stepInterval(delta) {
-    const input = document.getElementById('intervalInput');
-    let v = parseFloat(input.value) + delta;
-    v = Math.min(10, Math.max(0, Math.round(v * 2) / 2));
-    input.value = v;
+  const input = document.getElementById('intervalInput');
+  let v = parseFloat(input.value) + delta;
+  v = Math.min(10, Math.max(0, Math.round(v * 2) / 2));
+  input.value = v;
+  saveSettings();
 }
 
 /* ================================================================
-   Status management
+   Status
 ================================================================ */
 let currentState = 's_ready';
-
 function setStatus(key) {
-    currentState = key;
-    document.getElementById('statusBadge').setAttribute('data-state', key);
-    refreshStatus();
+  currentState = key;
+  document.getElementById('statusBadge').setAttribute('data-state', key);
+  refreshStatus();
 }
 function refreshStatus() {
-    document.getElementById('statusText').textContent = t(currentState);
+  document.getElementById('statusText').textContent = t(currentState);
 }
 
 /* ================================================================
-   Core audio logic
+   Core audio
 ================================================================ */
 const audioPlayer  = document.getElementById('audioPlayer');
 const readBoard    = document.getElementById('readBoard');
@@ -862,136 +1122,456 @@ const syncBtn      = document.getElementById('syncBtn');
 const playText     = document.getElementById('playText');
 const playIcon     = document.getElementById('playIcon');
 const progressFill = document.getElementById('progressFill');
+const progressTime = document.getElementById('progressTime');
 
 let currentTimings = [];
 let audioBlobUrl   = null;
 let rafId          = null;
 
+function fmtTime(s) {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2,'0')}`;
+}
+
 async function generateAudio() {
-    const text = document.getElementById('textInput').value.trim();
-    if (!text) {
-        alert(t('inputLabel') + '!');
-        return;
-    }
+  closeToast();
+  const text   = document.getElementById('textInput').value.trim();
+  const apiKey = document.getElementById('apiKeyInput').value.trim();
 
-    syncBtn.disabled = true;
-    syncBtn.classList.add('is-loading');
-    playBtn.disabled = true;
-    downloadBtn.disabled = true;
-    setStatus('s_syncing');
+  if (!text) {
+    showToast(lang === 'zh' ? '请先输入文本内容' : 'Please enter some text first.');
+    return;
+  }
+  if (!apiKey) {
+    showToast(lang === 'zh' ? '请在设置中输入 OpenAI API Key' : 'Please enter your OpenAI API Key in settings.');
+    openSidebar();
+    return;
+  }
 
-    try {
-        const res = await fetch('/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                text,
-                interval: document.getElementById('intervalInput').value,
-                accent: selectedAccent
-            })
-        });
-        if (!res.ok) throw new Error();
+  syncBtn.disabled   = true;
+  syncBtn.classList.add('is-loading');
+  playBtn.disabled   = true;
+  downloadBtn.disabled = true;
+  setStatus('s_syncing');
 
-        const data = await res.json();
-        const raw  = atob(data.audio_base64);
-        const buf  = new Uint8Array(raw.length);
-        for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
-        const blob = new Blob([buf], { type: 'audio/mpeg' });
+  try {
+    const res  = await fetch('/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text,
+        interval: document.getElementById('intervalInput').value,
+        api_key:  apiKey,
+        voice:    document.getElementById('voiceSelect').value
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Server error');
 
-        if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl);
-        audioBlobUrl = URL.createObjectURL(blob);
-        audioPlayer.src = audioBlobUrl;
+    const raw  = atob(data.audio_base64);
+    const buf  = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+    const blob = new Blob([buf], { type: 'audio/mpeg' });
 
-        currentTimings = data.timings;
-        buildReadBoard();
-        setStatus('s_audio_ready');
-        playBtn.disabled  = false;
-        downloadBtn.disabled = false;
+    if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl);
+    audioBlobUrl  = URL.createObjectURL(blob);
+    audioPlayer.src = audioBlobUrl;
 
-    } catch (e) {
-        console.error(e);
-        setStatus('s_error');
-    } finally {
-        syncBtn.disabled = false;
-        syncBtn.classList.remove('is-loading');
-    }
+    currentTimings = data.timings;
+    buildReadBoard();
+    setStatus('s_audio_ready');
+    playBtn.disabled     = false;
+    downloadBtn.disabled = false;
+
+  } catch (e) {
+    console.error(e);
+    setStatus('s_error');
+    showToast(e.message);  // FIX: inline toast, not alert()
+  } finally {
+    syncBtn.disabled = false;
+    syncBtn.classList.remove('is-loading');
+  }
 }
 
 function buildReadBoard() {
-    readBoard.innerHTML = '';
-    currentTimings.forEach(timing => {
-        const span = document.createElement('span');
-        span.className   = 'text-line';
-        span.id          = `line-${timing.index}`;
-        span.textContent = timing.text;
-        readBoard.appendChild(span);
-    });
+  readBoard.innerHTML = '';
+  currentTimings.forEach((timing, i) => {
+    const row = document.createElement('div');
+    row.className = 'text-line';
+    row.id        = `line-${timing.index}`;
+    row.title     = t('seekHint');   // ★ 使用 i18n
+    row.onclick   = () => seekToLine(timing);
+ 
+    const num = document.createElement('span');
+    num.className   = 'line-num';
+    num.textContent = i + 1;
+ 
+    const txt = document.createElement('span');
+    txt.textContent = timing.text;
+ 
+    row.appendChild(num);
+    row.appendChild(txt);
+    readBoard.appendChild(row);
+  });
+}
+
+// FIX: seek to line on click
+function seekToLine(timing) {
+  if (!audioBlobUrl) return;
+  audioPlayer.currentTime = timing.start_time;
+  if (audioPlayer.paused) {
+    audioPlayer.play();
+    setStatus('s_playing');
+    if (!rafId) rafId = requestAnimationFrame(tick);
+  }
+  refreshPlayBtn();
 }
 
 function refreshPlayBtn() {
-    if (!audioPlayer.paused && audioPlayer.src) {
-        playText.textContent = t('pauseBtn');
-        playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect>';
-    } else {
-        playText.textContent = t('playBtn');
-        playIcon.innerHTML = '<polygon points="5,3 19,12 5,21"></polygon>';
-    }
+  if (!audioPlayer.paused && audioPlayer.src) {
+    playText.textContent    = t('pauseBtn');
+    playIcon.innerHTML      = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+  } else {
+    playText.textContent    = t('playBtn');
+    playIcon.innerHTML      = '<polygon points="5,3 19,12 5,21"/>';
+  }
 }
 
 function togglePlay() {
-    if (audioPlayer.paused) {
-        audioPlayer.play();
-        setStatus('s_playing');
-        rafId = requestAnimationFrame(tick);
-    } else {
-        audioPlayer.pause();
-        setStatus('s_paused');
-        if (rafId) cancelAnimationFrame(rafId);
-    }
-    refreshPlayBtn();
+  if (audioPlayer.paused) {
+    audioPlayer.play();
+    setStatus('s_playing');
+    if (!rafId) rafId = requestAnimationFrame(tick);
+  } else {
+    audioPlayer.pause();
+    setStatus('s_paused');
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  }
+  refreshPlayBtn();
 }
 
 audioPlayer.addEventListener('ended', () => {
-    setStatus('s_finished');
-    if (rafId) cancelAnimationFrame(rafId);
-    document.querySelectorAll('.text-line').forEach(el => el.classList.remove('active'));
-    progressFill.style.width = '0%';
-    refreshPlayBtn();
+  setStatus('s_finished');
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  document.querySelectorAll('.text-line').forEach(el => el.classList.remove('active'));
+  progressFill.style.width = '0%';
+  progressTime.textContent = '0:00 / 0:00';
+  refreshPlayBtn();
 });
 
 function tick() {
-    if (audioPlayer.paused) return;
+  if (audioPlayer.paused) { rafId = null; return; }
 
-    const cur = audioPlayer.currentTime;
-    const dur = audioPlayer.duration || 1;
-    progressFill.style.width = `${(cur / dur) * 100}%`;
+  const cur = audioPlayer.currentTime;
+  const dur = audioPlayer.duration || 0;
 
-    let silent = true;
-    currentTimings.forEach(timing => {
-        const el = document.getElementById(`line-${timing.index}`);
-        if (!el) return;
-        if (cur >= timing.start_time && cur <= timing.end_time) {
-            el.classList.add('active');
-            silent = false;
-        } else {
-            el.classList.remove('active');
-        }
-    });
-    setStatus(silent ? 's_your_turn' : 's_listening');
+  // FIX: time display
+  if (dur > 0) {
+    progressFill.style.width  = `${(cur / dur) * 100}%`;
+    progressTime.textContent  = `${fmtTime(cur)} / ${fmtTime(dur)}`;
+  }
 
-    rafId = requestAnimationFrame(tick);
+  let silent = true;
+  currentTimings.forEach(timing => {
+    const el = document.getElementById(`line-${timing.index}`);
+    if (!el) return;
+    if (cur >= timing.start_time && cur <= timing.end_time) {
+      el.classList.add('active');
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      silent = false;
+    } else {
+      el.classList.remove('active');
+    }
+  });
+  setStatus(silent ? 's_your_turn' : 's_listening');
+
+  rafId = requestAnimationFrame(tick);
 }
 
 function downloadAudio() {
-    if (!audioBlobUrl) return;
-    const a = document.createElement('a');
-    a.href     = audioBlobUrl;
-    a.download = lang === 'zh' ? '英语跟读训练.mp3' : 'shadow_reader.mp3';
-    a.click();
+  if (!audioBlobUrl) return;
+  const a = document.createElement('a');
+  a.href     = audioBlobUrl;
+  a.download = lang === 'zh' ? '英语跟读训练.mp3' : 'shadow_reader.mp3';
+  a.click();
 }
 
 // Init
-setLang('en');
+document.addEventListener('DOMContentLoaded', () => {
+  loadSettings();
+  setLang('zh');
+  refreshKeyStatus();
+});
+</script>
+<script>
+// ── 全局状态 ──────────────────────────────────────────────────
+let _providersData   = null;   // /providers 接口返回数据
+let _currentVoices   = [];     // 当前 provider 的全量音色（含 lang 信息）
+ 
+// ── 初始化：从后端拉取服务商 & 音色数据 ──────────────────────
+async function initProviders() {
+  try {
+    const res  = await fetch('/providers');
+    _providersData = await res.json();
+  } catch {
+    // 离线 fallback：使用硬编码数据（与后端 voices 保持同步）
+    _providersData = {
+      voices: {
+        openai:      [
+          {value:"alloy",   label:"Alloy — 中性",          lang:"en"},
+          {value:"echo",    label:"Echo — 男声",            lang:"en"},
+          {value:"fable",   label:"Fable — 表现力强",       lang:"en"},
+          {value:"nova",    label:"Nova — 女声",            lang:"en"},
+          {value:"onyx",    label:"Onyx — 低沉男声",        lang:"en"},
+          {value:"shimmer", label:"Shimmer — 清亮女声",     lang:"en"},
+        ],
+        siliconflow: [
+          {value:"FunAudioLLM/CosyVoice2-0.5B:alex",     label:"Alex — 男声 (英文)",     lang:"en"},
+          {value:"FunAudioLLM/CosyVoice2-0.5B:anna",     label:"Anna — 女声 (英文)",     lang:"en"},
+          {value:"FunAudioLLM/CosyVoice2-0.5B:bella",    label:"Bella — 女声 (英文)",    lang:"en"},
+          {value:"FunAudioLLM/CosyVoice2-0.5B:benjamin", label:"Benjamin — 男声 (英文)", lang:"en"},
+          {value:"FunAudioLLM/CosyVoice2-0.5B:claire",   label:"Claire — 女声 (中文)",   lang:"zh"},
+          {value:"FunAudioLLM/CosyVoice2-0.5B:david",    label:"David — 男声 (中文)",    lang:"zh"},
+          {value:"FunAudioLLM/CosyVoice2-0.5B:diana",    label:"Diana — 女声 (中英双语)", lang:"zh/en"},
+        ],
+        dashscope: [
+          {value:"Cherry", label:"Cherry — 女声 (中文)",    lang:"zh"},
+          {value:"Ethan",  label:"Ethan — 男声 (中文)",     lang:"zh"},
+          {value:"Serena", label:"Serena — 女声 (英文)",    lang:"en"},
+          {value:"Dylan",  label:"Dylan — 男声 (英文)",     lang:"en"},
+          {value:"Zhiyu",  label:"Zhiyu — 女声 (中英双语)", lang:"zh/en"},
+        ],
+        volcengine: [
+          {value:"BV701_streaming", label:"通用女声",           lang:"zh"},
+          {value:"BV700_streaming", label:"通用男声",           lang:"zh"},
+          {value:"BV034_streaming", label:"知性女声",           lang:"zh"},
+          {value:"BV102_streaming", label:"磁性男声",           lang:"zh"},
+          {value:"BV001_streaming", label:"标准女声",           lang:"zh"},
+          {value:"BV002_streaming", label:"标准男声",           lang:"zh"},
+          {value:"BV503_streaming", label:"EMO情感女声",        lang:"zh"},
+          {value:"BV056_streaming", label:"清澈女声（英文）",   lang:"en"},
+          {value:"BV703_streaming", label:"活力男声（英文）",   lang:"en"},
+        ],
+        azure: [
+          {value:"en-US-JennyNeural",    label:"Jenny — 美式英文女声",    lang:"en"},
+          {value:"en-US-GuyNeural",      label:"Guy — 美式英文男声",      lang:"en"},
+          {value:"en-US-AriaNeural",     label:"Aria — 美式英文女声",     lang:"en"},
+          {value:"en-GB-SoniaNeural",    label:"Sonia — 英式英文女声",    lang:"en"},
+          {value:"en-GB-RyanNeural",     label:"Ryan — 英式英文男声",     lang:"en"},
+          {value:"zh-CN-XiaoxiaoNeural", label:"晓晓 — 中文普通话女声",   lang:"zh"},
+          {value:"zh-CN-YunxiNeural",    label:"云希 — 中文普通话男声",   lang:"zh"},
+          {value:"zh-CN-XiaoyiNeural",   label:"晓伊 — 中文普通话女声",   lang:"zh"},
+          {value:"zh-TW-HsiaoChenNeural",label:"曉臻 — 繁體中文女聲",    lang:"zh"},
+        ],
+      },
+      credential_hints: {
+        openai:      {format:"string", placeholder:"sk-...",          hint:"OpenAI API Key"},
+        siliconflow: {format:"string", placeholder:"sk-...",          hint:"硅基流动 API Key"},
+        dashscope:   {format:"string", placeholder:"sk-...",          hint:"阿里云百炼 API Key"},
+        volcengine:  {format:"json",   placeholder:'{"appid":"xxx","token":"xxx","cluster":"volcano_tts"}', hint:"火山引擎凭证 JSON"},
+        azure:       {format:"json",   placeholder:'{"key":"xxx","region":"eastus"}', hint:"Azure 凭证 JSON"},
+      },
+    };
+  }
+}
+
+const FREE_PROVIDERS = new Set(["edge-tts", "gtts", "pyttsx3"]);
+// ── 切换服务商 ──────────────────────────────────────────────────
+function onProviderChange() {
+  const provider    = document.getElementById('providerSelect').value;
+  const isFree      = FREE_PROVIDERS.has(provider);
+  const keyGroup    = document.getElementById('apiKeyGroup');   // 整个 Key 表单组
+  const credHint    = document.getElementById('credHint');
+  const apiKeyInput = document.getElementById('apiKeyInput');
+ 
+  // ── 免费服务商：隐藏整个 API Key 输入区 ──
+  keyGroup.style.display = isFree ? 'none' : '';
+ 
+  if (!isFree) {
+    // 付费服务商：更新 placeholder 和格式提示
+    const hint = _providersData?.credential_hints?.[provider];
+    if (hint) {
+      apiKeyInput.placeholder = hint.placeholder;
+      if (hint.format === 'json') {
+        credHint.textContent = '⚠ 此服务商需填写 JSON 凭证，' + hint.hint;
+        credHint.style.display = 'block';
+      } else {
+        credHint.style.display = 'none';
+      }
+    }
+    // 还原该服务商上次保存的 key
+    apiKeyInput.value = localStorage.getItem(`sr_api_key_${provider}`) || '';
+  }
+ 
+  // pyttsx3 离线服务商：动态获取系统音色列表
+  if (provider === 'pyttsx3') {
+    fetchPyttsx3Voices();
+  } else {
+    _currentVoices = _providersData?.voices?.[provider] ?? [];
+    applyVoiceFilter();
+  }
+ 
+  saveSettings();
+  refreshKeyStatus();
+}
+async function fetchPyttsx3Voices() {
+  try {
+    const res  = await fetch('/system-voices');
+    const data = await res.json();
+    _currentVoices = data.voices ?? [];
+  } catch {
+    // 后端不可达时 fallback 到静态列表
+    _currentVoices = _providersData?.voices?.pyttsx3 ?? [];
+  }
+  applyVoiceFilter();
+}
+ 
+// ── 按语言过滤音色 ───────────────────────────────────────────────
+function applyVoiceFilter() {
+  const filter   = document.getElementById('langFilter').value;
+  const sel      = document.getElementById('voiceSelect');
+  const provider = document.getElementById('providerSelect').value;
+  const saved    = localStorage.getItem(`sr_voice_${provider}`);
+ 
+  const filtered = filter === 'all'
+    ? _currentVoices
+    : _currentVoices.filter(v => v.lang === filter || v.lang === 'zh/en');
+ 
+  sel.innerHTML = '';
+ 
+  if (filtered.length === 0) {
+    const opt       = document.createElement('option');
+    opt.textContent = t('voiceEmpty');   // ★ 使用 i18n
+    opt.disabled    = true;
+    sel.appendChild(opt);
+    return;
+  }
+ 
+  filtered.forEach(({ value, label }) => {
+    const opt    = document.createElement('option');
+    opt.value    = value;
+    opt.textContent = label;
+    if (value === saved) opt.selected = true;
+    sel.appendChild(opt);
+  });
+ 
+  saveSettings();
+}
+ 
+// ── 凭证状态指示 ────────────────────────────────────────────────
+function refreshKeyStatus() {
+  const val = document.getElementById('apiKeyInput').value.trim();
+  const el  = document.getElementById('keyStatus');
+  const txt = document.getElementById('keyStatusText');
+  const provider = document.getElementById('providerSelect').value;
+ 
+  const hint   = _providersData?.credential_hints?.[provider];
+  const isJson = hint?.format === 'json';
+ 
+  let valid = false;
+  if (isJson) {
+    try { JSON.parse(val); valid = val.length > 10; } catch {}
+  } else {
+    valid = val.length >= 10;
+  }
+ 
+  el.classList.toggle('ok', valid);
+  txt.textContent = valid ? '凭证已保存到本地' : (isJson ? '请输入 JSON 凭证' : '未输入密钥');
+}
+ 
+function onApiKeyChange() {
+  saveSettings();
+  refreshKeyStatus();
+}
+ 
+// ── 保存 / 读取设置 ─────────────────────────────────────────────
+function saveSettings() {
+  const provider = document.getElementById('providerSelect').value;
+  const voice    = document.getElementById('voiceSelect').value;
+  localStorage.setItem('sr_api_key',           document.getElementById('apiKeyInput').value);
+  localStorage.setItem('sr_provider',          provider);
+  localStorage.setItem(`sr_voice_${provider}`, voice);
+  localStorage.setItem('sr_interval',          document.getElementById('intervalInput').value);
+  localStorage.setItem('sr_lang_filter',       document.getElementById('langFilter').value);
+}
+ 
+async function loadSettings() {
+  await initProviders();
+  const provider = localStorage.getItem('sr_provider') || 'openai';
+  const interval = localStorage.getItem('sr_interval');
+  const filter   = localStorage.getItem('sr_lang_filter') || 'all';
+
+  document.getElementById('providerSelect').value = provider;
+  document.getElementById('intervalInput').value  = interval || 2;
+  document.getElementById('langFilter').value     = filter;
+
+  // ✅ 读取该 provider 对应的 key（而不是通用的 sr_api_key）
+  const savedKey = localStorage.getItem(`sr_api_key_${provider}`) || '';
+  document.getElementById('apiKeyInput').value = savedKey;
+
+  onProviderChange();
+}
+ 
+// ── 生成音频（覆盖原函数，加入 provider 字段）──────────────────
+async function generateAudio() {
+  closeToast();
+  const text     = document.getElementById('textInput').value.trim();
+  const provider = document.getElementById('providerSelect').value;
+  const voice    = document.getElementById('voiceSelect').value;
+  const interval = document.getElementById('intervalInput').value;
+  const isFree   = FREE_PROVIDERS.has(provider);
+  const apiKey   = isFree ? '' : document.getElementById('apiKeyInput').value.trim();
+ 
+  if (!text) { showToast('请先输入文本内容'); return; }
+  if (!isFree && !apiKey) { showToast('请输入 API 凭证'); openSidebar(); return; }
+ 
+  syncBtn.disabled = true;
+  syncBtn.classList.add('is-loading');
+  playBtn.disabled = downloadBtn.disabled = true;
+  setStatus('s_syncing');
+ 
+  try {
+    const body = { text, provider, voice, interval };
+    if (!isFree) body.api_key = apiKey;   // 免费服务商不传 key
+ 
+    const res  = await fetch('/generate', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Server error');
+ 
+    const raw = atob(data.audio_base64);
+    const buf = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+    const blob = new Blob([buf], { type: 'audio/mpeg' });
+ 
+    if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl);
+    audioBlobUrl    = URL.createObjectURL(blob);
+    audioPlayer.src = audioBlobUrl;
+    currentTimings  = data.timings;
+    buildReadBoard();
+    setStatus('s_audio_ready');
+    playBtn.disabled = downloadBtn.disabled = false;
+ 
+  } catch (e) {
+    console.error(e);
+    setStatus('s_error');
+    showToast(e.message);
+  } finally {
+    syncBtn.disabled = false;
+    syncBtn.classList.remove('is-loading');
+  }
+}
+ 
+// DOMContentLoaded 中调用异步 loadSettings
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadSettings();
+  setLang('zh');
+  refreshKeyStatus();
+});
 </script>
 </body>
 </html>
