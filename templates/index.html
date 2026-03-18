@@ -961,10 +961,6 @@ function setLang(l) {
     if (dict[l][k] !== undefined) el.textContent = dict[l][k];
   });
  
-  // textarea placeholder
-  document.getElementById('textInput').placeholder =
-    l === 'zh' ? '苹果\n香蕉\n你今天好吗？' : 'Apple\nBanana\nHow are you doing today?';
- 
   // Provider 下拉菜单 optgroup 标签
   const ogPaid = document.getElementById('optgroupPaid');
   const ogFree = document.getElementById('optgroupFree');
