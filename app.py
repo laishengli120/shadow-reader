@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import os
+import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
@@ -77,13 +78,18 @@ class TTSProvider(abc.ABC):
 
     #: 该 provider 支持的音色列表
     voices: list[VoiceOption] = []
+    supports_native_rate = False
+
+    @property
+    def voice_options(self) -> list[VoiceOption]:
+        return self.voices
 
     @property
     def allowed_voice_values(self) -> frozenset[str]:
-        return frozenset(v.value for v in self.voices)
+        return frozenset(v.value for v in self.voice_options)
 
     @abc.abstractmethod
-    def tts(self, text: str, voice: str) -> bytes:
+    def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
         """合成单句，返回 MP3 字节。失败时抛出异常。"""
 
     def validate_voice(self, voice: str) -> bool:
@@ -113,7 +119,7 @@ class OpenAIProvider(TTSProvider):
     def __init__(self, api_key: str) -> None:
         self._client = OpenAI(api_key=api_key)
 
-    def tts(self, text: str, voice: str) -> bytes:
+    def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
         resp = self._client.audio.speech.create(
             model="tts-1",
             voice=voice,
@@ -153,7 +159,7 @@ class SiliconFlowProvider(TTSProvider):
             base_url=self.BASE_URL,
         )
 
-    def tts(self, text: str, voice: str) -> bytes:
+    def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
         resp = self._client.audio.speech.create(
             model=self.DEFAULT_MODEL,
             voice=voice,
@@ -189,7 +195,7 @@ class DashScopeProvider(TTSProvider):
     def __init__(self, api_key: str) -> None:
         self._api_key = api_key
 
-    def tts(self, text: str, voice: str) -> bytes:
+    def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
         try:
             import dashscope
         except ImportError as exc:
@@ -248,6 +254,7 @@ class VolcengineProvider(TTSProvider):
     """
 
     API_URL = "https://openspeech.bytedance.com/api/v1/tts"
+    supports_native_rate = True
 
     voices = [
         VoiceOption("BV701_streaming", "通用女声",              "zh"),
@@ -278,7 +285,7 @@ class VolcengineProvider(TTSProvider):
         if not self._appid or not self._token:
             raise ValueError("火山引擎凭证缺少 appid 或 token")
 
-    def tts(self, text: str, voice: str) -> bytes:
+    def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
         headers = {
             "Content-Type":  "application/json",
             "Authorization": f"Bearer;{self._token}",
@@ -293,7 +300,7 @@ class VolcengineProvider(TTSProvider):
             "audio": {
                 "voice_type":   voice,
                 "encoding":     "mp3",
-                "speed_ratio":  1.0,
+                "speed_ratio":  rate,
                 "volume_ratio": 1.0,
                 "pitch_ratio":  1.0,
             },
@@ -369,11 +376,14 @@ class AzureProvider(TTSProvider):
         VoiceOption("zh-CN-XiaoyiNeural",        "晓伊 — 中文普通话女声", "zh"),
         VoiceOption("zh-TW-HsiaoChenNeural",     "曉臻 — 繁體中文女聲",  "zh"),
     ]
+    supports_native_rate = True
 
     # SSML 模板：根据音色名推断语言
     _SSML = (
         "<speak version='1.0' xml:lang='{lang}'>"
-        "<voice xml:lang='{lang}' name='{voice}'>{text}</voice>"
+        "<voice xml:lang='{lang}' name='{voice}'>"
+        "<prosody rate='{rate_pct}'>{text}</prosody>"
+        "</voice>"
         "</speak>"
     )
 
@@ -398,11 +408,16 @@ class AzureProvider(TTSProvider):
         parts = voice_name.split("-")
         return f"{parts[0]}-{parts[1]}" if len(parts) >= 2 else "en-US"
 
-    def tts(self, text: str, voice: str) -> bytes:
+    @staticmethod
+    def _rate_to_ssml(rate: float) -> str:
+        return f"{int(round((rate - 1.0) * 100)):+d}%"
+
+    def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
         lang = self._voice_to_lang(voice)
         ssml = self._SSML.format(
             lang=lang,
             voice=voice,
+            rate_pct=self._rate_to_ssml(rate),
             text=text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"),
         )
 
@@ -446,6 +461,7 @@ class EdgeTTSProvider(TTSProvider):
     """
     def __init__(self, api_key: str = "") -> None:
         pass  # 免费服务商不需要凭证
+    supports_native_rate = True
     # 精选常用中英文音色（完整列表有 400+ 个，可用 edge-tts --list-voices 查看）
     voices = [
         # 中文
@@ -471,7 +487,11 @@ class EdgeTTSProvider(TTSProvider):
         VoiceOption("en-AU-WilliamNeural",   "William — 澳式英文男声",    "en"),
     ]
 
-    def tts(self, text: str, voice: str) -> bytes:
+    @staticmethod
+    def _rate_to_edge(rate: float) -> str:
+        return f"{int(round((rate - 1.0) * 100)):+d}%"
+
+    def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
         try:
             import edge_tts
         except ImportError as exc:
@@ -480,7 +500,11 @@ class EdgeTTSProvider(TTSProvider):
             ) from exc
 
         async def _synthesize() -> bytes:
-            communicate = edge_tts.Communicate(text=text, voice=voice)
+            communicate = edge_tts.Communicate(
+                text=text,
+                voice=voice,
+                rate=self._rate_to_edge(rate),
+            )
             # edge-tts 原生支持流式输出，收集所有 audio chunk 拼成完整 MP3
             chunks: list[bytes] = []
             async for chunk in communicate.stream():
@@ -534,7 +558,7 @@ class GTTSProvider(TTSProvider):
         "yue":   ("yue", None),
     }
 
-    def tts(self, text: str, voice: str) -> bytes:
+    def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
         try:
             from gtts import gTTS
         except ImportError as exc:
@@ -578,6 +602,7 @@ class Pyttsx3Provider(TTSProvider):
     """
     def __init__(self, api_key: str = "") -> None:
         pass  # 免费服务商不需要凭证
+    supports_native_rate = True
 
     # 音色列表在运行时从系统动态获取，这里提供通用默认值
     # 用户可通过 /providers 接口查看实际可用音色
@@ -609,6 +634,13 @@ class Pyttsx3Provider(TTSProvider):
             return result if result else cls.voices
         except Exception:
             return cls.voices
+
+    @property
+    def voice_options(self) -> list[VoiceOption]:
+        values: dict[str, VoiceOption] = {}
+        for voice in self.get_system_voices() + self.voices:
+            values[voice.value] = voice
+        return list(values.values())
 
     def _resolve_voice_id(self, voice: str) -> str | None:
         """将虚拟音色名（__female__ 等）解析为系统实际的 voice.id。"""
@@ -642,7 +674,7 @@ class Pyttsx3Provider(TTSProvider):
         # voice 是真实系统 id（从 get_system_voices() 获取的）
         return voice
 
-    def tts(self, text: str, voice: str) -> bytes:
+    def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
         try:
             import pyttsx3
         except ImportError as exc:
@@ -661,7 +693,7 @@ class Pyttsx3Provider(TTSProvider):
             engine = pyttsx3.init()
             if voice_id:
                 engine.setProperty("voice", voice_id)
-            engine.setProperty("rate", 150)    # 语速（wpm），默认 200 偏快
+            engine.setProperty("rate", int(150 * rate))    # 语速（wpm），默认 200 偏快
             engine.setProperty("volume", 1.0)
             engine.save_to_file(text, tmp_path)
             engine.runAndWait()
@@ -743,6 +775,12 @@ limiter = Limiter(
 MAX_SENTENCES = 50
 MAX_INTERVAL  = 10.0
 MIN_INTERVAL  = 0.0
+MAX_SPEECH_RATE = 1.5
+MIN_SPEECH_RATE = 0.6
+DEFAULT_SPEECH_RATE = 1.0
+
+_CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
 
 
 @contextmanager
@@ -752,6 +790,125 @@ def _bytes_io():
         yield buf
     finally:
         buf.close()
+
+
+def _clamp_float(value, default: float, low: float, high: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(low, min(high, parsed))
+
+
+def _char_language(char: str) -> str | None:
+    if _CJK_RE.match(char):
+        return "zh"
+    if _LATIN_RE.match(char):
+        return "en"
+    return None
+
+
+def _split_text_by_language(text: str) -> list[tuple[str, str]]:
+    """
+    Split a line into zh/en runs while keeping neutral punctuation near the
+    preceding spoken run. Timing still stays at the original line level.
+    """
+    parts: list[tuple[str, str]] = []
+    current_lang: str | None = None
+    buf: list[str] = []
+    prefix: list[str] = []
+
+    for char in text:
+        char_lang = _char_language(char)
+        if char_lang is None:
+            if current_lang is None:
+                prefix.append(char)
+            else:
+                buf.append(char)
+            continue
+
+        if current_lang is None:
+            current_lang = char_lang
+            buf.extend(prefix)
+            prefix.clear()
+            buf.append(char)
+            continue
+
+        if char_lang == current_lang:
+            buf.append(char)
+            continue
+
+        parts.append(("".join(buf), current_lang))
+        current_lang = char_lang
+        buf = [char]
+
+    if current_lang is None:
+        spoken = "".join(prefix).strip()
+        return [(spoken, "en")] if spoken else []
+
+    parts.append(("".join(buf), current_lang))
+    return [(part, part_lang) for part, part_lang in parts if part.strip()]
+
+
+def _default_voice_for_lang(
+    voice_options: list[VoiceOption],
+    target_lang: str,
+    fallback: str | None = None,
+) -> str:
+    valid = {voice.value for voice in voice_options}
+    if fallback and fallback in valid:
+        return fallback
+
+    for voice in voice_options:
+        if voice.lang == target_lang or voice.lang == "zh/en":
+            return voice.value
+
+    return voice_options[0].value if voice_options else ""
+
+
+def _adjust_audio_rate(segment: AudioSegment, rate: float) -> AudioSegment:
+    if abs(rate - 1.0) < 0.01:
+        return segment
+
+    with _bytes_io() as out:
+        segment.export(
+            out,
+            format="mp3",
+            parameters=["-filter:a", f"atempo={rate:.3f}"],
+        )
+        out.seek(0)
+        return AudioSegment.from_file(out, format="mp3")
+
+
+def _segment_to_mp3_bytes(segment: AudioSegment) -> bytes:
+    with _bytes_io() as out:
+        segment.export(out, format="mp3")
+        return out.getvalue()
+
+
+def _audio_bytes_to_segment(audio_bytes: bytes) -> AudioSegment:
+    with _bytes_io() as fp:
+        fp.write(audio_bytes)
+        fp.seek(0)
+        return AudioSegment.from_file(fp, format="mp3")
+
+
+def _synthesize_line(
+    provider: TTSProvider,
+    line: str,
+    voice_zh: str,
+    voice_en: str,
+    speech_rate: float,
+) -> bytes:
+    combined = AudioSegment.empty()
+    for part, part_lang in _split_text_by_language(line):
+        voice = voice_zh if part_lang == "zh" else voice_en
+        combined += _audio_bytes_to_segment(provider.tts(part, voice, speech_rate))
+
+    if not provider.supports_native_rate:
+        combined = _adjust_audio_rate(combined, speech_rate)
+
+    return _segment_to_mp3_bytes(combined)
 
 
 def _openai_error_response(exc: APIStatusError) -> tuple[dict, int]:
@@ -824,6 +981,9 @@ def register_free_routes(app):
                 for v in voices
             ]
         })
+
+register_free_routes(app)
+
 @app.route("/generate", methods=["POST"])
 @limiter.limit("10 per minute")
 def generate_audio():
@@ -836,12 +996,16 @@ def generate_audio():
     text          = (data.get("text")     or "").strip()
     provider_name = (data.get("provider") or "openai").strip().lower()
     voice         = (data.get("voice")    or "").strip()
+    voice_zh      = (data.get("voice_zh") or "").strip()
+    voice_en      = (data.get("voice_en") or "").strip()
  
-    try:
-        interval = float(data.get("interval", 2.0))
-    except (TypeError, ValueError):
-        interval = 2.0
-    interval = max(MIN_INTERVAL, min(MAX_INTERVAL, interval))
+    interval = _clamp_float(data.get("interval", 2.0), 2.0, MIN_INTERVAL, MAX_INTERVAL)
+    speech_rate = _clamp_float(
+        data.get("speech_rate", DEFAULT_SPEECH_RATE),
+        DEFAULT_SPEECH_RATE,
+        MIN_SPEECH_RATE,
+        MAX_SPEECH_RATE,
+    )
  
     if provider_name not in ProviderRegistry.names():
         return jsonify({
@@ -859,11 +1023,36 @@ def generate_audio():
     except (ValueError, RuntimeError) as exc:
         return jsonify({"error": str(exc)}), 400
 
-    if not voice or not provider.validate_voice(voice):
-        valid = [v.value for v in provider.__class__.voices]
+    voice_options = provider.voice_options
+    valid_values = {v.value for v in voice_options}
+    requested_voices = {
+        "voice": voice,
+        "voice_zh": voice_zh,
+        "voice_en": voice_en,
+    }
+    invalid_voices = {
+        key: value
+        for key, value in requested_voices.items()
+        if value and value not in valid_values
+    }
+    if invalid_voices:
+        valid = [v.value for v in voice_options]
         return jsonify({
-            "error": f"不支持的音色 '{voice}'，{provider_name} 可用音色: {valid}"
+            "error": f"不支持的音色 {invalid_voices}，{provider_name} 可用音色: {valid}"
         }), 400
+
+    voice_zh = _default_voice_for_lang(
+        voice_options,
+        "zh",
+        fallback=voice_zh or voice or voice_en,
+    )
+    voice_en = _default_voice_for_lang(
+        voice_options,
+        "en",
+        fallback=voice_en or voice or voice_zh,
+    )
+    if not voice_zh or not voice_en:
+        return jsonify({"error": f"{provider_name} 暂无可用音色。"}), 400
 
     lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
     if not lines:
@@ -877,7 +1066,14 @@ def generate_audio():
     try:
         with ThreadPoolExecutor(max_workers=min(len(lines), 8)) as pool:
             future_to_idx = {
-                pool.submit(provider.tts, line, voice): idx
+                pool.submit(
+                    _synthesize_line,
+                    provider,
+                    line,
+                    voice_zh,
+                    voice_en,
+                    speech_rate,
+                ): idx
                 for idx, line in enumerate(lines)
             }
             mp3_bytes: dict[int, bytes] = {}
@@ -913,10 +1109,7 @@ def generate_audio():
     current_ms = 0
 
     for idx, line in enumerate(lines):
-        with _bytes_io() as fp:
-            fp.write(mp3_bytes[idx])
-            fp.seek(0)
-            segment = AudioSegment.from_file(fp, format="mp3")
+        segment = _audio_bytes_to_segment(mp3_bytes[idx])
 
         duration_ms = len(segment)
         timings.append({
@@ -938,8 +1131,8 @@ def generate_audio():
         audio_b64 = base64.b64encode(out.getvalue()).decode()
 
     logger.info(
-        "Generated: provider=%s sentences=%d interval=%.1fs duration=%.1fs",
-        provider_name, len(lines), interval, current_ms / 1000.0,
+        "Generated: provider=%s sentences=%d interval=%.1fs rate=%.1fx duration=%.1fs",
+        provider_name, len(lines), interval, speech_rate, current_ms / 1000.0,
     )
     return jsonify({"audio_base64": audio_b64, "timings": timings})
 
