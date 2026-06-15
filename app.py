@@ -2,17 +2,12 @@ from __future__ import annotations
 
 import abc
 import base64
-import hashlib
 import io
 import json
 import logging
 import os
-import random
 import re
-import threading
-import time
 import uuid
-from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from typing import NamedTuple
@@ -794,98 +789,6 @@ MAX_SPEECH_RATE = 1.5
 MIN_SPEECH_RATE = 0.6
 DEFAULT_SPEECH_RATE = 1.0
 
-
-def _env_int(name: str, default: int, low: int, high: int) -> int:
-    try:
-        value = int(os.environ.get(name, default))
-    except (TypeError, ValueError):
-        value = default
-    return max(low, min(high, value))
-
-
-def _env_float(name: str, default: float, low: float, high: float) -> float:
-    try:
-        value = float(os.environ.get(name, default))
-    except (TypeError, ValueError):
-        value = default
-    return max(low, min(high, value))
-
-
-TTS_CACHE_TTL_SECONDS = _env_float("TTS_CACHE_TTL_SECONDS", 6 * 60 * 60, 0, 7 * 24 * 60 * 60)
-TTS_CACHE_MAX_ITEMS = _env_int("TTS_CACHE_MAX_ITEMS", 512, 0, 5000)
-TTS_CACHE_MAX_BYTES = _env_int("TTS_CACHE_MAX_BYTES", 64 * 1024 * 1024, 0, 512 * 1024 * 1024)
-TTS_RETRY_ATTEMPTS = _env_int("TTS_RETRY_ATTEMPTS", 3, 1, 8)
-TTS_RETRY_BASE_DELAY = _env_float("TTS_RETRY_BASE_DELAY", 0.75, 0.1, 30.0)
-TTS_RETRY_MAX_DELAY = _env_float("TTS_RETRY_MAX_DELAY", 8.0, 0.1, 60.0)
-TTS_FREE_MAX_WORKERS = _env_int("TTS_FREE_MAX_WORKERS", 1, 1, 4)
-TTS_PAID_MAX_WORKERS = _env_int("TTS_PAID_MAX_WORKERS", 4, 1, 8)
-
-
-class TTSAudioCache:
-    """Small in-process LRU cache for synthesized audio chunks."""
-
-    def __init__(self, ttl_seconds: float, max_items: int, max_bytes: int) -> None:
-        self.ttl_seconds = ttl_seconds
-        self.max_items = max_items
-        self.max_bytes = max_bytes
-        self._items: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
-        self._bytes_used = 0
-        self._lock = threading.Lock()
-
-    @property
-    def enabled(self) -> bool:
-        return (
-            self.ttl_seconds > 0
-            and self.max_items > 0
-            and self.max_bytes > 0
-        )
-
-    def get(self, key: str) -> bytes | None:
-        if not self.enabled:
-            return None
-
-        now = time.monotonic()
-        with self._lock:
-            item = self._items.get(key)
-            if item is None:
-                return None
-
-            expires_at, audio = item
-            if expires_at <= now:
-                self._items.pop(key, None)
-                self._bytes_used -= len(audio)
-                return None
-
-            self._items.move_to_end(key)
-            return audio
-
-    def set(self, key: str, audio: bytes) -> None:
-        if not self.enabled or len(audio) > self.max_bytes:
-            return
-
-        expires_at = time.monotonic() + self.ttl_seconds
-        with self._lock:
-            old = self._items.pop(key, None)
-            if old is not None:
-                self._bytes_used -= len(old[1])
-
-            self._items[key] = (expires_at, audio)
-            self._bytes_used += len(audio)
-
-            while (
-                len(self._items) > self.max_items
-                or self._bytes_used > self.max_bytes
-            ):
-                _, (_, evicted_audio) = self._items.popitem(last=False)
-                self._bytes_used -= len(evicted_audio)
-
-
-TTS_AUDIO_CACHE = TTSAudioCache(
-    ttl_seconds=TTS_CACHE_TTL_SECONDS,
-    max_items=TTS_CACHE_MAX_ITEMS,
-    max_bytes=TTS_CACHE_MAX_BYTES,
-)
-
 _CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
 
@@ -1000,121 +903,7 @@ def _audio_bytes_to_segment(audio_bytes: bytes) -> AudioSegment:
         return AudioSegment.from_file(fp, format="mp3")
 
 
-_RETRYABLE_HTTP_STATUSES = {408, 409, 425, 429, 500, 502, 503, 504}
-_RETRYABLE_ERROR_MARKERS = (
-    "429",
-    "too many requests",
-    "rate limit",
-    "rate-limit",
-    "temporarily unavailable",
-    "timeout",
-    "timed out",
-    "cannot connect",
-    "connection aborted",
-    "connection error",
-    "connection reset",
-    "read timeout",
-    "remote disconnected",
-    "server disconnected",
-    "service unavailable",
-    "bad gateway",
-    "gateway timeout",
-    "500",
-    "502",
-    "503",
-    "504",
-)
-
-
-def _tts_cache_key(provider_name: str, voice: str, rate: float, text: str) -> str:
-    text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    payload = {
-        "provider": provider_name,
-        "voice": voice,
-        "rate": round(rate, 3),
-        "text": text_hash,
-    }
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _short_error(exc: Exception) -> str:
-    return " ".join(str(exc).split())[:240]
-
-
-def _is_retryable_tts_error(exc: Exception) -> bool:
-    status = getattr(exc, "status_code", None)
-    if status in _RETRYABLE_HTTP_STATUSES:
-        return True
-
-    response = getattr(exc, "response", None)
-    response_status = getattr(response, "status_code", None)
-    if response_status in _RETRYABLE_HTTP_STATUSES:
-        return True
-
-    message = str(exc).lower()
-    return any(marker in message for marker in _RETRYABLE_ERROR_MARKERS)
-
-
-def _call_tts_with_retries(provider_name: str, call) -> bytes:
-    for attempt in range(1, TTS_RETRY_ATTEMPTS + 1):
-        try:
-            return call()
-        except Exception as exc:
-            if attempt >= TTS_RETRY_ATTEMPTS or not _is_retryable_tts_error(exc):
-                raise
-
-            delay = min(
-                TTS_RETRY_MAX_DELAY,
-                TTS_RETRY_BASE_DELAY * (2 ** (attempt - 1)),
-            )
-            delay *= random.uniform(0.8, 1.25)
-            logger.warning(
-                "Retrying TTS provider=%s attempt=%d/%d delay=%.2fs error=%s",
-                provider_name,
-                attempt + 1,
-                TTS_RETRY_ATTEMPTS,
-                delay,
-                _short_error(exc),
-            )
-            time.sleep(delay)
-
-    raise RuntimeError("TTS retry loop exited unexpectedly")
-
-
-def _synthesize_tts_part(
-    provider_name: str,
-    provider: TTSProvider,
-    text: str,
-    voice: str,
-    speech_rate: float,
-) -> bytes:
-    cache_key = _tts_cache_key(provider_name, voice, speech_rate, text)
-    cached = TTS_AUDIO_CACHE.get(cache_key)
-    if cached is not None:
-        logger.debug("TTS cache hit: provider=%s voice=%s", provider_name, voice)
-        return cached
-
-    audio = _call_tts_with_retries(
-        provider_name,
-        lambda: provider.tts(text, voice, speech_rate),
-    )
-    if audio:
-        TTS_AUDIO_CACHE.set(cache_key, audio)
-    return audio
-
-
-def _provider_worker_count(provider_name: str, line_count: int) -> int:
-    worker_limit = (
-        TTS_FREE_MAX_WORKERS
-        if provider_name in FREE_PROVIDERS
-        else TTS_PAID_MAX_WORKERS
-    )
-    return max(1, min(line_count, worker_limit))
-
-
 def _synthesize_line(
-    provider_name: str,
     provider: TTSProvider,
     line: str,
     voice_zh: str,
@@ -1124,8 +913,7 @@ def _synthesize_line(
     combined = AudioSegment.empty()
     for part, part_lang in _split_text_by_language(line):
         voice = voice_zh if part_lang == "zh" else voice_en
-        audio = _synthesize_tts_part(provider_name, provider, part, voice, speech_rate)
-        combined += _audio_bytes_to_segment(audio)
+        combined += _audio_bytes_to_segment(provider.tts(part, voice, speech_rate))
 
     if not provider.supports_native_rate:
         combined = _adjust_audio_rate(combined, speech_rate)
@@ -1284,38 +1072,24 @@ def generate_audio():
             "error": f"句子数超出上限（{MAX_SENTENCES} 句），请分批处理。"
         }), 400
 
-    # ── 2. TTS 生成（免费服务商默认串行，避免触发共享出口限流）──────────
+    # ── 2. 并发 TTS ──────────────────────────────────────────────
     try:
-        max_workers = _provider_worker_count(provider_name, len(lines))
-        mp3_bytes: dict[int, bytes] = {}
-
-        if max_workers == 1:
-            for idx, line in enumerate(lines):
-                mp3_bytes[idx] = _synthesize_line(
-                    provider_name,
+        with ThreadPoolExecutor(max_workers=min(len(lines), 8)) as pool:
+            future_to_idx = {
+                pool.submit(
+                    _synthesize_line,
                     provider,
                     line,
                     voice_zh,
                     voice_en,
                     speech_rate,
-                )
-        else:
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                future_to_idx = {
-                    pool.submit(
-                        _synthesize_line,
-                        provider_name,
-                        provider,
-                        line,
-                        voice_zh,
-                        voice_en,
-                        speech_rate,
-                    ): idx
-                    for idx, line in enumerate(lines)
-                }
-                for future in as_completed(future_to_idx):
-                    idx = future_to_idx[future]
-                    mp3_bytes[idx] = future.result()
+                ): idx
+                for idx, line in enumerate(lines)
+            }
+            mp3_bytes: dict[int, bytes] = {}
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                mp3_bytes[idx] = future.result()
 
     except AuthenticationError as exc:
         body, code = _openai_error_response(exc)
