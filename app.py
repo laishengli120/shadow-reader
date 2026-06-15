@@ -565,9 +565,6 @@ class GTTSProvider(TTSProvider):
         "yue":   ("yue", None),
     }
 
-    # 429 时轮换的备选 TLD（避开被限流的域名）
-    _FALLBACK_TLDS = ["com", "com.sg", "co.jp", "fr", "de", "es", "it", "nl"]
-
     def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
         try:
             from gtts import gTTS
@@ -579,16 +576,14 @@ class GTTSProvider(TTSProvider):
         import time
 
         lang, tld = self._LANG_MAP.get(voice, ("en", None))
-        tlds_to_try = [tld] if tld else [None]
-        tlds_to_try += [t for t in self._FALLBACK_TLDS if t != tld]
+        kwargs = {"text": text, "lang": lang, "slow": False}
+        if tld:
+            kwargs["tld"] = tld
 
+        max_retries = 3
         last_error = None
-        for attempt, try_tld in enumerate(tlds_to_try):
+        for attempt in range(max_retries):
             try:
-                kwargs = {"text": text, "lang": lang, "slow": False}
-                if try_tld:
-                    kwargs["tld"] = try_tld
-
                 tts_obj = gTTS(**kwargs)
                 buf = io.BytesIO()
                 tts_obj.write_to_fp(buf)
@@ -596,12 +591,11 @@ class GTTSProvider(TTSProvider):
                 mp3_bytes = buf.read()
                 buf.close()
                 return mp3_bytes
-
             except Exception as exc:
                 last_error = exc
                 msg = str(exc)
-                if "429" in msg and attempt < len(tlds_to_try) - 1:
-                    time.sleep(1.0 * (attempt + 1))
+                if "429" in msg and attempt < max_retries - 1:
+                    time.sleep(2.0 * (attempt + 1))
                     continue
                 raise RuntimeError(str(exc)) from exc
 
