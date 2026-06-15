@@ -500,12 +500,14 @@ class EdgeTTSProvider(TTSProvider):
             ) from exc
 
         async def _synthesize() -> bytes:
-            communicate = edge_tts.Communicate(
-                text=text,
-                voice=voice,
-                rate=self._rate_to_edge(rate),
-            )
-            # edge-tts 原生支持流式输出，收集所有 audio chunk 拼成完整 MP3
+            try:
+                communicate = edge_tts.Communicate(
+                    text=text,
+                    voice=voice,
+                    rate=self._rate_to_edge(rate),
+                )
+            except TypeError:
+                communicate = edge_tts.Communicate(text=text, voice=voice)
             chunks: list[bytes] = []
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
@@ -514,7 +516,12 @@ class EdgeTTSProvider(TTSProvider):
                 raise RuntimeError("edge-tts 未返回任何音频数据")
             return b"".join(chunks)
 
-        return _run_async(_synthesize())
+        try:
+            return _run_async(_synthesize())
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(str(exc)) from exc
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -574,7 +581,10 @@ class GTTSProvider(TTSProvider):
         tts_obj = gTTS(**kwargs)
 
         buf = io.BytesIO()
-        tts_obj.write_to_fp(buf)
+        try:
+            tts_obj.write_to_fp(buf)
+        except Exception as exc:
+            raise RuntimeError(str(exc)) from exc
         buf.seek(0)
         mp3_bytes = buf.read()
         buf.close()
@@ -1098,9 +1108,9 @@ def generate_audio():
         # 火山引擎 / Azure / DashScope 的业务错误
         logger.error("Provider error [%s]: %s", provider_name, exc)
         return jsonify({"error": str(exc)}), 502
-    except Exception:
+    except Exception as exc:
         logger.exception("Unexpected TTS error: provider=%s", provider_name)
-        return jsonify({"error": "服务内部错误，请稍后重试。"}), 500
+        return jsonify({"error": str(exc)}), 500
 
     # ── 3. 拼接音频 ───────────────────────────────────────────────
     silence  = AudioSegment.silent(duration=int(interval * 1000))
