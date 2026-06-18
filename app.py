@@ -7,6 +7,8 @@ import json
 import logging
 import os
 import re
+import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
@@ -79,6 +81,8 @@ class TTSProvider(abc.ABC):
     #: 该 provider 支持的音色列表
     voices: list[VoiceOption] = []
     supports_native_rate = False
+    audio_format = "mp3"
+    max_workers = 8
 
     @property
     def voice_options(self) -> list[VoiceOption]:
@@ -90,7 +94,7 @@ class TTSProvider(abc.ABC):
 
     @abc.abstractmethod
     def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
-        """合成单句，返回 MP3 字节。失败时抛出异常。"""
+        """合成单句，返回 audio_format 指定格式的字节。"""
 
     def validate_voice(self, voice: str) -> bool:
         return voice in self.allowed_voice_values
@@ -613,6 +617,7 @@ class Pyttsx3Provider(TTSProvider):
     def __init__(self, api_key: str = "") -> None:
         pass  # 免费服务商不需要凭证
     supports_native_rate = True
+    max_workers = 1
 
     # 音色列表在运行时从系统动态获取，这里提供通用默认值
     # 用户可通过 /providers 接口查看实际可用音色
@@ -722,6 +727,151 @@ class Pyttsx3Provider(TTSProvider):
             except OSError:
                 pass
 
+
+# ═══════════════════════════════════════════════════════════════════
+# Provider: VoxCPM2（本地开源模型）
+# ═══════════════════════════════════════════════════════════════════
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+class VoxCPMProvider(TTSProvider):
+    """
+    VoxCPM2 本地开源 TTS。
+    - 首次使用时自动加载/下载模型，后续请求复用内存中的模型
+    - 默认模型：openbmb/VoxCPM2
+    - 环境变量可配置 VOXCPM_MODEL、VOXCPM_DEVICE、VOXCPM_CACHE_DIR 等
+    - 依赖: pip install -r requirements-voxcpm.txt
+    """
+
+    audio_format = "wav"
+    max_workers = 1
+
+    voices = [
+        VoiceOption("default", "默认上下文音色", "zh/en"),
+        VoiceOption("zh_female_warm", "温柔中文女声", "zh"),
+        VoiceOption("zh_male_clear", "清晰中文男声", "zh"),
+        VoiceOption("zh_child_bright", "明亮童声（中文）", "zh"),
+        VoiceOption("en_female_warm", "Warm female voice", "en"),
+        VoiceOption("en_male_clear", "Clear male voice", "en"),
+        VoiceOption("en_storyteller", "Expressive storyteller", "en"),
+    ]
+
+    _VOICE_PROMPTS = {
+        "zh_female_warm": "A young woman, gentle and warm voice, clear Mandarin pronunciation",
+        "zh_male_clear": "A young man, clear and calm voice, standard Mandarin pronunciation",
+        "zh_child_bright": "A bright child voice, lively and natural, clear Mandarin pronunciation",
+        "en_female_warm": "A young woman, warm and gentle voice, natural English pronunciation",
+        "en_male_clear": "A young man, clear and confident voice, natural English pronunciation",
+        "en_storyteller": "An expressive storyteller voice, vivid intonation, natural English pronunciation",
+    }
+
+    _model = None
+    _model_signature: tuple | None = None
+    _model_lock = threading.Lock()
+    _infer_lock = threading.Lock()
+
+    def __init__(self, api_key: str = "") -> None:
+        pass
+
+    @classmethod
+    def _settings(cls) -> dict:
+        return {
+            "model": os.environ.get("VOXCPM_MODEL") or os.environ.get("VOXCPM_MODEL_ID", "openbmb/VoxCPM2"),
+            "device": os.environ.get("VOXCPM_DEVICE", "auto"),
+            "cache_dir": os.environ.get("VOXCPM_CACHE_DIR") or None,
+            "local_files_only": _env_bool("VOXCPM_LOCAL_FILES_ONLY", False),
+            "load_denoiser": _env_bool("VOXCPM_LOAD_DENOISER", False),
+            "optimize": _env_bool("VOXCPM_OPTIMIZE", False),
+        }
+
+    @classmethod
+    def _load_model(cls):
+        settings = cls._settings()
+        signature = tuple(sorted(settings.items()))
+
+        with cls._model_lock:
+            if cls._model is not None and cls._model_signature == signature:
+                return cls._model
+
+            try:
+                from voxcpm import VoxCPM
+            except ImportError as exc:
+                raise RuntimeError(
+                    "VoxCPM 未安装。请先执行: pip install -r requirements-voxcpm.txt"
+                ) from exc
+
+            try:
+                cls._model = VoxCPM.from_pretrained(
+                    settings["model"],
+                    load_denoiser=settings["load_denoiser"],
+                    cache_dir=settings["cache_dir"],
+                    local_files_only=settings["local_files_only"],
+                    optimize=settings["optimize"],
+                    device=settings["device"],
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    "VoxCPM 模型加载失败。请确认 Python 为 3.10-3.12，"
+                    "依赖已安装，且本机有足够内存/显存。原始错误: "
+                    f"{exc}"
+                ) from exc
+
+            cls._model_signature = signature
+            return cls._model
+
+    @staticmethod
+    def _voice_text(text: str, voice: str) -> str:
+        prompt = VoxCPMProvider._VOICE_PROMPTS.get(voice)
+        return f"({prompt}){text}" if prompt else text
+
+    @staticmethod
+    def _wav_to_bytes(wav, sample_rate: int) -> bytes:
+        try:
+            import soundfile as sf
+        except ImportError as exc:
+            raise RuntimeError(
+                "soundfile 未安装。请先执行: pip install -r requirements-voxcpm.txt"
+            ) from exc
+
+        with _bytes_io() as wav_buf:
+            sf.write(wav_buf, wav, sample_rate, format="WAV")
+            return wav_buf.getvalue()
+
+    def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
+        model = self._load_model()
+        target_text = self._voice_text(text, voice)
+        sample_rate = int(getattr(getattr(model, "tts_model", None), "sample_rate", 48000))
+
+        with self._infer_lock:
+            wav = model.generate(
+                text=target_text,
+                cfg_value=_env_float("VOXCPM_CFG_VALUE", 2.0),
+                inference_timesteps=_env_int("VOXCPM_INFERENCE_TIMESTEPS", 10),
+                normalize=_env_bool("VOXCPM_NORMALIZE", False),
+                denoise=_env_bool("VOXCPM_DENOISE", False),
+            )
+
+        return self._wav_to_bytes(wav, sample_rate)
+
 # ═══════════════════════════════════════════════════════════════════
 # Provider Registry
 # ═══════════════════════════════════════════════════════════════════
@@ -741,6 +891,7 @@ class ProviderRegistry:
         "edge-tts":     EdgeTTSProvider,    # 推荐，Neural 级别，免费
         "gtts":         GTTSProvider,       # Google，免费，音色单一
         "pyttsx3":      Pyttsx3Provider,    # 完全离线，音质较差
+        "voxcpm":       VoxCPMProvider,     # 本地开源神经网络 TTS
     }
 
     @classmethod
@@ -890,35 +1041,120 @@ def _adjust_audio_rate(segment: AudioSegment, rate: float) -> AudioSegment:
         return AudioSegment.from_file(out, format="mp3")
 
 
-def _segment_to_mp3_bytes(segment: AudioSegment) -> bytes:
-    with _bytes_io() as out:
-        segment.export(out, format="mp3")
-        return out.getvalue()
-
-
-def _audio_bytes_to_segment(audio_bytes: bytes) -> AudioSegment:
+def _audio_bytes_to_segment(
+    audio_bytes: bytes,
+    audio_format: str = "mp3",
+) -> AudioSegment:
     with _bytes_io() as fp:
         fp.write(audio_bytes)
         fp.seek(0)
-        return AudioSegment.from_file(fp, format="mp3")
+        return AudioSegment.from_file(fp, format=audio_format)
 
 
-def _synthesize_line(
+class _SynthesisTask(NamedTuple):
+    line_index: int
+    part_index: int
+    text: str
+    voice: str
+
+
+class _SynthesisResult(NamedTuple):
+    line_index: int
+    part_index: int
+    segment: AudioSegment
+    tts_seconds: float
+    decode_seconds: float
+
+
+class _SynthesisMetrics(NamedTuple):
+    worker_count: int
+    part_count: int
+    tts_wall_seconds: float
+    tts_call_seconds: float
+    decode_seconds: float
+    audio_processing_seconds: float
+
+
+def _synthesize_part(
     provider: TTSProvider,
-    line: str,
+    task: _SynthesisTask,
+    speech_rate: float,
+) -> _SynthesisResult:
+    tts_started = time.perf_counter()
+    audio_bytes = provider.tts(task.text, task.voice, speech_rate)
+    tts_seconds = time.perf_counter() - tts_started
+
+    decode_started = time.perf_counter()
+    segment = _audio_bytes_to_segment(audio_bytes, provider.audio_format)
+    decode_seconds = time.perf_counter() - decode_started
+
+    return _SynthesisResult(
+        task.line_index,
+        task.part_index,
+        segment,
+        tts_seconds,
+        decode_seconds,
+    )
+
+
+def _synthesize_lines(
+    provider: TTSProvider,
+    lines: list[str],
     voice_zh: str,
     voice_en: str,
     speech_rate: float,
-) -> bytes:
-    combined = AudioSegment.empty()
-    for part, part_lang in _split_text_by_language(line):
-        voice = voice_zh if part_lang == "zh" else voice_en
-        combined += _audio_bytes_to_segment(provider.tts(part, voice, speech_rate))
+) -> tuple[list[AudioSegment], _SynthesisMetrics]:
+    """Synthesize all language runs globally, then rebuild lines in order."""
+    tasks: list[_SynthesisTask] = []
+    part_counts: list[int] = []
 
-    if not provider.supports_native_rate:
-        combined = _adjust_audio_rate(combined, speech_rate)
+    for line_index, line in enumerate(lines):
+        parts = _split_text_by_language(line)
+        part_counts.append(len(parts))
+        for part_index, (part, part_lang) in enumerate(parts):
+            voice = voice_zh if part_lang == "zh" else voice_en
+            tasks.append(_SynthesisTask(line_index, part_index, part, voice))
 
-    return _segment_to_mp3_bytes(combined)
+    worker_count = max(1, min(len(tasks), provider.max_workers))
+    parts_by_line: list[list[AudioSegment | None]] = [
+        [None] * count for count in part_counts
+    ]
+    results: list[_SynthesisResult] = []
+
+    tts_wall_started = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        futures = [
+            pool.submit(_synthesize_part, provider, task, speech_rate)
+            for task in tasks
+        ]
+        for future in as_completed(futures):
+            result = future.result()
+            parts_by_line[result.line_index][result.part_index] = result.segment
+            results.append(result)
+    tts_wall_seconds = time.perf_counter() - tts_wall_started
+
+    processing_started = time.perf_counter()
+    line_segments: list[AudioSegment] = []
+    for line_parts in parts_by_line:
+        combined = AudioSegment.empty()
+        for part in line_parts:
+            if part is None:
+                raise RuntimeError("语音片段生成不完整。")
+            combined += part
+
+        if not provider.supports_native_rate:
+            combined = _adjust_audio_rate(combined, speech_rate)
+        line_segments.append(combined)
+    audio_processing_seconds = time.perf_counter() - processing_started
+
+    return line_segments, _SynthesisMetrics(
+        worker_count=worker_count,
+        part_count=len(tasks),
+        tts_wall_seconds=tts_wall_seconds,
+        tts_call_seconds=sum(result.tts_seconds for result in results),
+        decode_seconds=sum(result.decode_seconds for result in results),
+        audio_processing_seconds=audio_processing_seconds,
+    )
 
 
 def _openai_error_response(exc: APIStatusError) -> tuple[dict, int]:
@@ -964,6 +1200,8 @@ def list_providers():
                  "hint": "无需 API Key，调用 Google Translate TTS"},
         "pyttsx3":     {"format": "none", "placeholder": "",
                  "hint": "完全离线，调用系统自带语音引擎"},
+        "voxcpm":      {"format": "none", "placeholder": "",
+                 "hint": "本地开源 VoxCPM2，无需 API Key；首次使用会加载/下载模型"},
     }
     voices_map = ProviderRegistry.voices_map()
     return jsonify({
@@ -973,7 +1211,7 @@ def list_providers():
     })
 
 
-FREE_PROVIDERS = {"edge-tts", "gtts", "pyttsx3"}
+FREE_PROVIDERS = {"edge-tts", "gtts", "pyttsx3", "voxcpm"}
 
 def register_free_routes(app):
     """将免费服务商相关路由注册到 Flask app。"""
@@ -997,6 +1235,7 @@ register_free_routes(app)
 @app.route("/generate", methods=["POST"])
 @limiter.limit("10 per minute")
 def generate_audio():
+    request_started = time.perf_counter()
     # ── 1. 解析与校验 ─────────────────────────────────────────────
     data = request.get_json(silent=True)
     if not data:
@@ -1074,22 +1313,13 @@ def generate_audio():
 
     # ── 2. 并发 TTS ──────────────────────────────────────────────
     try:
-        with ThreadPoolExecutor(max_workers=min(len(lines), 8)) as pool:
-            future_to_idx = {
-                pool.submit(
-                    _synthesize_line,
-                    provider,
-                    line,
-                    voice_zh,
-                    voice_en,
-                    speech_rate,
-                ): idx
-                for idx, line in enumerate(lines)
-            }
-            mp3_bytes: dict[int, bytes] = {}
-            for future in as_completed(future_to_idx):
-                idx = future_to_idx[future]
-                mp3_bytes[idx] = future.result()
+        line_segments, synthesis_metrics = _synthesize_lines(
+            provider,
+            lines,
+            voice_zh,
+            voice_en,
+            speech_rate,
+        )
 
     except AuthenticationError as exc:
         body, code = _openai_error_response(exc)
@@ -1113,14 +1343,13 @@ def generate_audio():
         return jsonify({"error": str(exc)}), 500
 
     # ── 3. 拼接音频 ───────────────────────────────────────────────
+    final_assembly_started = time.perf_counter()
     silence  = AudioSegment.silent(duration=int(interval * 1000))
     combined = AudioSegment.empty()
     timings: list[dict] = []
     current_ms = 0
 
-    for idx, line in enumerate(lines):
-        segment = _audio_bytes_to_segment(mp3_bytes[idx])
-
+    for idx, (line, segment) in enumerate(zip(lines, line_segments)):
         duration_ms = len(segment)
         timings.append({
             "index":      idx,
@@ -1135,14 +1364,42 @@ def generate_audio():
             combined   += silence
             current_ms += len(silence)
 
+    final_assembly_seconds = time.perf_counter() - final_assembly_started
+    audio_processing_seconds = (
+        synthesis_metrics.audio_processing_seconds + final_assembly_seconds
+    )
+
     # ── 4. 导出并返回 ────────────────────────────────────────────
+    encoding_started = time.perf_counter()
     with _bytes_io() as out:
         combined.export(out, format="mp3")
-        audio_b64 = base64.b64encode(out.getvalue()).decode()
+        final_audio = out.getvalue()
+    encoding_seconds = time.perf_counter() - encoding_started
+
+    base64_started = time.perf_counter()
+    audio_b64 = base64.b64encode(final_audio).decode()
+    base64_seconds = time.perf_counter() - base64_started
+    total_seconds = time.perf_counter() - request_started
 
     logger.info(
-        "Generated: provider=%s sentences=%d interval=%.1fs rate=%.1fx duration=%.1fs",
-        provider_name, len(lines), interval, speech_rate, current_ms / 1000.0,
+        "Generated: provider=%s sentences=%d parts=%d workers=%d "
+        "interval=%.1fs rate=%.1fx duration=%.1fs "
+        "tts_wall=%.3fs tts_calls_total=%.3fs decode_total=%.3fs "
+        "audio_processing=%.3fs encode=%.3fs base64=%.3fs total=%.3fs",
+        provider_name,
+        len(lines),
+        synthesis_metrics.part_count,
+        synthesis_metrics.worker_count,
+        interval,
+        speech_rate,
+        current_ms / 1000.0,
+        synthesis_metrics.tts_wall_seconds,
+        synthesis_metrics.tts_call_seconds,
+        synthesis_metrics.decode_seconds,
+        audio_processing_seconds,
+        encoding_seconds,
+        base64_seconds,
+        total_seconds,
     )
     return jsonify({"audio_base64": audio_b64, "timings": timings})
 

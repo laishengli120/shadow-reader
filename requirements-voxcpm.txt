@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# Optional local open-source TTS provider.
+# VoxCPM requires Python >=3.10,<3.13 and installs a large PyTorch/model stack.
+voxcpm
