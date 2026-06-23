@@ -475,6 +475,19 @@ textarea::placeholder { color: var(--gray-400); }
 .status-badge[data-state="s_finished"]    .status-dot { background: var(--green); }
 .status-badge[data-state="s_paused"]      .status-dot { background: var(--yellow); }
 
+.synthesis-time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 10px;
+  border: var(--border-sm);
+  background: var(--white);
+  color: var(--gray-500);
+  white-space: nowrap;
+  min-width: 94px;
+  text-align: center;
+}
+
 @keyframes blink {
   0%,100% { opacity: 1; }
   50%      { opacity: 0.2; }
@@ -641,6 +654,7 @@ textarea::placeholder { color: var(--gray-400); }
   .btn-generate { flex: 1 1 100%; }
   .btn-play, .btn-download { flex: 1; }
   .status-badge { margin-left: 0; width: 100%; justify-content: center; }
+  .synthesis-time { width: 100%; }
   .btn-settings-mobile { display: flex !important; }
 }
 @media (min-width: 769px) {
@@ -690,8 +704,8 @@ audio { display: none; }
             <option value="azure">微软 Azure TTS</option>
           </optgroup>
           <optgroup id="optgroupFree" label="免费服务商（无需 API Key）">
-            <option value="edge-tts">Edge TTS ★ 推荐</option>
-            <option value="gtts">gTTS (Google)</option>
+            <option value="edge-tts">Edge TTS</option>
+            <option value="gtts">gTTS (Google) ★ 推荐</option>
             <option value="pyttsx3">pyttsx3（离线）</option>
           </optgroup>
         </select>
@@ -803,6 +817,11 @@ How are you doing today?</textarea>
         <span id="statusText" data-i18n="s_ready">Ready</span>
       </div>
 
+      <div class="synthesis-time" id="synthesisTime" aria-live="polite">
+        <span data-i18n="synthesisTimeLabel">Time</span>
+        <span id="synthesisTimeValue">--</span>
+      </div>
+
       <!-- FIX: Inline toast error — no alert() -->
       <div class="toast-bar" id="toastBar" role="alert" aria-live="assertive">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -876,6 +895,8 @@ const dict = {
     playBtn:          "Play",
     pauseBtn:         "Pause",
     downloadBtn:      "Download",
+    synthesisTimeLabel: "Time",
+    synthesisTimePending: "…",
  
     // ── 输出区 ───────────────────────────────────────────────────
     emptyBoard:       "Synced lines will appear here",
@@ -930,6 +951,8 @@ const dict = {
     playBtn:          "开始播放",
     pauseBtn:         "暂停",
     downloadBtn:      "导出 MP3",
+    synthesisTimeLabel: "合成用时",
+    synthesisTimePending: "…",
  
     // ── 输出区 ───────────────────────────────────────────────────
     emptyBoard:       "生成后，逐句字幕将在此同步显示",   // ★ 完善（原：生成后，跟读字幕将在此显示）
@@ -1092,6 +1115,15 @@ function setStatus(key) {
 }
 function refreshStatus() {
   document.getElementById('statusText').textContent = t(currentState);
+}
+
+function setSynthesisTime(value) {
+  document.getElementById('synthesisTimeValue').textContent = value;
+}
+
+function formatSeconds(seconds) {
+  if (!Number.isFinite(seconds)) return '--';
+  return `${seconds.toFixed(seconds < 10 ? 2 : 1)}s`;
 }
 
 /* ================================================================
@@ -1454,6 +1486,7 @@ async function loadSettings() {
 // ── 生成音频 ───────────────────────────────────────────────────
 async function generateAudio() {
   closeToast();
+  const startedAt = performance.now();
   const text     = document.getElementById('textInput').value.trim();
   const provider = document.getElementById('providerSelect').value;
   const voiceZh  = document.getElementById('voiceZhSelect').value;
@@ -1471,6 +1504,7 @@ async function generateAudio() {
   syncBtn.classList.add('is-loading');
   playBtn.disabled = downloadBtn.disabled = true;
   setStatus('s_syncing');
+  setSynthesisTime(t('synthesisTimePending'));
  
   try {
     const body = {
@@ -1501,6 +1535,11 @@ async function generateAudio() {
     audioBlobUrl    = URL.createObjectURL(blob);
     audioPlayer.src = audioBlobUrl;
     currentTimings  = data.timings;
+    const elapsedSeconds = (performance.now() - startedAt) / 1000;
+    const totalSeconds = Number(data.metrics?.total_seconds);
+    setSynthesisTime(formatSeconds(
+      Number.isFinite(totalSeconds) ? totalSeconds : elapsedSeconds
+    ));
     buildReadBoard();
     setStatus('s_audio_ready');
     playBtn.disabled = downloadBtn.disabled = false;
@@ -1508,6 +1547,7 @@ async function generateAudio() {
   } catch (e) {
     console.error(e);
     setStatus('s_error');
+    setSynthesisTime('--');
     showToast(e.message);
   } finally {
     syncBtn.disabled = false;

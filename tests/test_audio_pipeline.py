@@ -252,7 +252,7 @@ class GenerateEndpointTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
-        self.assertEqual(set(payload), {"audio_base64", "timings"})
+        self.assertEqual(set(payload), {"audio_base64", "timings", "metrics"})
         self.assertEqual(mp3_exports, 1)
 
         audio = base64.b64decode(payload["audio_base64"])
@@ -264,6 +264,12 @@ class GenerateEndpointTests(unittest.TestCase):
         self.assertLess(timings[0]["start_time"], timings[0]["end_time"])
         self.assertLessEqual(timings[0]["end_time"], timings[1]["start_time"])
         self.assertLess(timings[1]["start_time"], timings[1]["end_time"])
+
+        metrics = payload["metrics"]
+        self.assertEqual(metrics["part_count"], 3)
+        self.assertEqual(metrics["worker_count"], 3)
+        self.assertGreaterEqual(metrics["total_seconds"], 0)
+        self.assertGreaterEqual(metrics["synthesis_seconds"], 0)
 
     def test_empty_and_over_limit_text_are_rejected(self) -> None:
         with mock.patch.object(

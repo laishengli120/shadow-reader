@@ -449,7 +449,7 @@ class AzureProvider(TTSProvider):
 
         return resp.content
 # ═══════════════════════════════════════════════════════════════════
-# Provider: edge-tts（推荐）
+# Provider: edge-tts
 # 调用微软 Edge 在线 TTS，Neural 级别音质，免费，无需任何 Key
 # ═══════════════════════════════════════════════════════════════════
 
@@ -813,8 +813,8 @@ class ProviderRegistry:
         "dashscope":    DashScopeProvider,
         "volcengine":   VolcengineProvider,
         "azure":        AzureProvider,
-        "edge-tts":     EdgeTTSProvider,    # 推荐，Neural 级别，免费
-        "gtts":         GTTSProvider,       # Google，免费，音色单一
+        "edge-tts":     EdgeTTSProvider,    # Neural 级别，免费
+        "gtts":         GTTSProvider,       # 推荐，Google，免费，音色单一
         "pyttsx3":      Pyttsx3Provider,    # 完全离线，音质较差
     }
 
@@ -1331,7 +1331,18 @@ def generate_audio():
         base64_seconds,
         total_seconds,
     )
-    return jsonify({"audio_base64": audio_b64, "timings": timings})
+    return jsonify({
+        "audio_base64": audio_b64,
+        "timings": timings,
+        "metrics": {
+            "total_seconds": round(total_seconds, 3),
+            "synthesis_seconds": round(synthesis_metrics.tts_wall_seconds, 3),
+            "audio_processing_seconds": round(audio_processing_seconds, 3),
+            "encoding_seconds": round(encoding_seconds, 3),
+            "part_count": synthesis_metrics.part_count,
+            "worker_count": synthesis_metrics.worker_count,
+        },
+    })
 
 
 # ─────────────────────────────────────────────
