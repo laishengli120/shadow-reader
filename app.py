@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -545,7 +546,7 @@ class GTTSProvider(TTSProvider):
     def __init__(self, api_key: str = "") -> None:
         self._chunk_workers = _clamp_int(
             os.environ.get("GTTS_CHUNK_WORKERS"),
-            default=4,
+            default=1,  # 外层池已并行，避免嵌套连接爆炸
             low=1,
             high=16,
         )
@@ -983,6 +984,44 @@ def _audio_bytes_to_segment(
         return AudioSegment.from_file(fp, format=audio_format)
 
 
+# ── TTS 音频缓存 ───────────────────────────────────────────────
+# 对相同 (provider, text, voice, rate) 组合跳过网络调用。
+# 跟读场景下重复文本极多，缓存命中可将合成耗时降至接近零。
+_TTS_CACHE: dict[tuple[str, str, str, int], bytes] = {}
+_TTS_CACHE_LOCK = threading.Lock()
+_TTS_CACHE_MAX = 256
+
+
+def _tts_cache_get(
+    provider_name: str, text: str, voice: str, rate: float,
+) -> bytes | None:
+    """缓存命中返回音频字节，未命中返回 None。"""
+    rate_key = int(round(rate, 2) * 100)
+    key = (provider_name, text, voice, rate_key)
+    with _TTS_CACHE_LOCK:
+        return _TTS_CACHE.get(key)
+
+
+def _tts_cache_set(
+    provider_name: str, text: str, voice: str, rate: float, audio: bytes,
+) -> None:
+    """将音频字节写入缓存; 超过上限时按 FIFO 淘汰最旧条目。"""
+    rate_key = int(round(rate, 2) * 100)
+    key = (provider_name, text, voice, rate_key)
+    with _TTS_CACHE_LOCK:
+        if len(_TTS_CACHE) >= _TTS_CACHE_MAX:
+            oldest = next(iter(_TTS_CACHE), None)
+            if oldest is not None:
+                del _TTS_CACHE[oldest]
+        _TTS_CACHE[key] = audio
+
+
+def _tts_cache_clear() -> None:
+    """清空 TTS 缓存（主要用于测试）。"""
+    with _TTS_CACHE_LOCK:
+        _TTS_CACHE.clear()
+
+
 class _SynthesisTask(NamedTuple):
     line_index: int
     part_index: int
@@ -1012,9 +1051,16 @@ def _synthesize_part(
     task: _SynthesisTask,
     speech_rate: float,
 ) -> _SynthesisResult:
-    tts_started = time.perf_counter()
-    audio_bytes = provider.tts(task.text, task.voice, speech_rate)
-    tts_seconds = time.perf_counter() - tts_started
+    provider_name = type(provider).__name__
+    cached = _tts_cache_get(provider_name, task.text, task.voice, speech_rate)
+    if cached is not None:
+        audio_bytes = cached
+        tts_seconds = 0.0  # 缓存命中，无网络耗时
+    else:
+        tts_started = time.perf_counter()
+        audio_bytes = provider.tts(task.text, task.voice, speech_rate)
+        tts_seconds = time.perf_counter() - tts_started
+        _tts_cache_set(provider_name, task.text, task.voice, speech_rate, audio_bytes)
 
     decode_started = time.perf_counter()
     segment = _audio_bytes_to_segment(audio_bytes, provider.audio_format)

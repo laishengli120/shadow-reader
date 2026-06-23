@@ -69,6 +69,9 @@ class FakeProvider(shadow.TTSProvider):
 
 
 class AudioPipelineTests(unittest.TestCase):
+    def setUp(self) -> None:
+        shadow._tts_cache_clear()
+
     def test_mixed_language_parts_run_concurrently_and_keep_order(self) -> None:
         amplitudes = {"中": 1000, "A": 2000, "文": 3000, "B": 4000}
         provider = FakeProvider(delay=0.05, amplitudes=amplitudes)
@@ -167,7 +170,7 @@ class AudioPipelineTests(unittest.TestCase):
         self.assertEqual(audio, b"part-0part-1part-2part-3")
         self.assertGreaterEqual(peak_active, 2)
 
-    def test_repeated_lines_are_not_deduplicated(self) -> None:
+    def test_repeated_lines_are_cached_not_re_synthesized(self) -> None:
         provider = FakeProvider()
 
         segments, _ = shadow._synthesize_lines(
@@ -179,7 +182,9 @@ class AudioPipelineTests(unittest.TestCase):
         )
 
         self.assertEqual(len(segments), 2)
-        self.assertEqual([call[0] for call in provider.calls].count("hello"), 2)
+        # 第二句命中缓存，TTS 实际只调用一次
+        self.assertEqual(len(provider.calls), 1)
+        self.assertEqual(provider.calls[0][0], "hello")
 
     def test_rate_post_processing_only_runs_for_non_native_provider(self) -> None:
         native_provider = FakeProvider(supports_native_rate=True)
