@@ -543,7 +543,15 @@ class GTTSProvider(TTSProvider):
     - 仅适合个人/学习用途
     - 依赖: pip install gtts
     """
+    max_workers = 4
+
     def __init__(self, api_key: str = "") -> None:
+        self.max_workers = _clamp_int(
+            os.environ.get("GTTS_WORKERS"),
+            default=4,
+            low=1,
+            high=12,
+        )
         self._chunk_workers = _clamp_int(
             os.environ.get("GTTS_CHUNK_WORKERS"),
             default=1,  # 外层池已并行，避免嵌套连接爆炸
@@ -556,8 +564,6 @@ class GTTSProvider(TTSProvider):
             low=1.0,
             high=60.0,
         )
-
-    max_workers = 12
 
     # gTTS 没有多音色概念，用「语言」模拟音色选择
     voices = [
@@ -867,6 +873,7 @@ DEFAULT_SPEECH_RATE = 1.0
 
 _CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
+_LEADING_LIST_MARKER_RE = re.compile(r"^\s*\d+\s*[\.\u3002\uff0e\u3001\)\uff09]\s*")
 
 
 @contextmanager
@@ -944,6 +951,15 @@ def _split_text_by_language(text: str) -> list[tuple[str, str]]:
     return [(part, part_lang) for part, part_lang in parts if part.strip()]
 
 
+def _spoken_text_for_tts(text: str) -> str:
+    """
+    Remove display-only Arabic list numbers from listening material before TTS.
+    The original line is still used for timings/subtitles.
+    """
+    spoken = _LEADING_LIST_MARKER_RE.sub("", text, count=1).strip()
+    return spoken or text
+
+
 def _default_voice_for_lang(
     voice_options: list[VoiceOption],
     target_lang: str,
@@ -987,17 +1003,24 @@ def _audio_bytes_to_segment(
 # ── TTS 音频缓存 ───────────────────────────────────────────────
 # 对相同 (provider, text, voice, rate) 组合跳过网络调用。
 # 跟读场景下重复文本极多，缓存命中可将合成耗时降至接近零。
-_TTS_CACHE: dict[tuple[str, str, str, int], bytes] = {}
+_TTSCacheKey = tuple[str, str, str, int]
+_TTS_CACHE: dict[_TTSCacheKey, bytes] = {}
 _TTS_CACHE_LOCK = threading.Lock()
 _TTS_CACHE_MAX = 256
+
+
+def _tts_cache_key(
+    provider_name: str, text: str, voice: str, rate: float,
+) -> _TTSCacheKey:
+    rate_key = int(round(rate, 2) * 100)
+    return (provider_name, text, voice, rate_key)
 
 
 def _tts_cache_get(
     provider_name: str, text: str, voice: str, rate: float,
 ) -> bytes | None:
     """缓存命中返回音频字节，未命中返回 None。"""
-    rate_key = int(round(rate, 2) * 100)
-    key = (provider_name, text, voice, rate_key)
+    key = _tts_cache_key(provider_name, text, voice, rate)
     with _TTS_CACHE_LOCK:
         return _TTS_CACHE.get(key)
 
@@ -1006,8 +1029,7 @@ def _tts_cache_set(
     provider_name: str, text: str, voice: str, rate: float, audio: bytes,
 ) -> None:
     """将音频字节写入缓存; 超过上限时按 FIFO 淘汰最旧条目。"""
-    rate_key = int(round(rate, 2) * 100)
-    key = (provider_name, text, voice, rate_key)
+    key = _tts_cache_key(provider_name, text, voice, rate)
     with _TTS_CACHE_LOCK:
         if len(_TTS_CACHE) >= _TTS_CACHE_MAX:
             oldest = next(iter(_TTS_CACHE), None)
@@ -1027,19 +1049,25 @@ class _SynthesisTask(NamedTuple):
     part_index: int
     text: str
     voice: str
+    cache_key: _TTSCacheKey
 
 
 class _SynthesisResult(NamedTuple):
     line_index: int
     part_index: int
+    cache_key: _TTSCacheKey
     segment: AudioSegment
     tts_seconds: float
     decode_seconds: float
+    cache_hit: bool
 
 
 class _SynthesisMetrics(NamedTuple):
     worker_count: int
     part_count: int
+    unique_part_count: int
+    deduped_part_count: int
+    cache_hit_count: int
     tts_wall_seconds: float
     tts_call_seconds: float
     decode_seconds: float
@@ -1056,11 +1084,13 @@ def _synthesize_part(
     if cached is not None:
         audio_bytes = cached
         tts_seconds = 0.0  # 缓存命中，无网络耗时
+        cache_hit = True
     else:
         tts_started = time.perf_counter()
         audio_bytes = provider.tts(task.text, task.voice, speech_rate)
         tts_seconds = time.perf_counter() - tts_started
         _tts_cache_set(provider_name, task.text, task.voice, speech_rate, audio_bytes)
+        cache_hit = False
 
     decode_started = time.perf_counter()
     segment = _audio_bytes_to_segment(audio_bytes, provider.audio_format)
@@ -1069,9 +1099,11 @@ def _synthesize_part(
     return _SynthesisResult(
         task.line_index,
         task.part_index,
+        task.cache_key,
         segment,
         tts_seconds,
         decode_seconds,
+        cache_hit,
     )
 
 
@@ -1084,16 +1116,24 @@ def _synthesize_lines(
 ) -> tuple[list[AudioSegment], _SynthesisMetrics]:
     """Synthesize all language runs globally, then rebuild lines in order."""
     tasks: list[_SynthesisTask] = []
+    unique_tasks: dict[_TTSCacheKey, _SynthesisTask] = {}
+    task_locations: dict[_TTSCacheKey, list[tuple[int, int]]] = {}
     part_counts: list[int] = []
+    provider_name = type(provider).__name__
 
     for line_index, line in enumerate(lines):
-        parts = _split_text_by_language(line)
+        spoken_line = _spoken_text_for_tts(line)
+        parts = _split_text_by_language(spoken_line)
         part_counts.append(len(parts))
         for part_index, (part, part_lang) in enumerate(parts):
             voice = voice_zh if part_lang == "zh" else voice_en
-            tasks.append(_SynthesisTask(line_index, part_index, part, voice))
+            cache_key = _tts_cache_key(provider_name, part, voice, speech_rate)
+            task = _SynthesisTask(line_index, part_index, part, voice, cache_key)
+            tasks.append(task)
+            unique_tasks.setdefault(cache_key, task)
+            task_locations.setdefault(cache_key, []).append((line_index, part_index))
 
-    worker_count = max(1, min(len(tasks), provider.max_workers))
+    worker_count = max(1, min(len(unique_tasks), provider.max_workers))
     parts_by_line: list[list[AudioSegment | None]] = [
         [None] * count for count in part_counts
     ]
@@ -1103,11 +1143,12 @@ def _synthesize_lines(
     with ThreadPoolExecutor(max_workers=worker_count) as pool:
         futures = [
             pool.submit(_synthesize_part, provider, task, speech_rate)
-            for task in tasks
+            for task in unique_tasks.values()
         ]
         for future in as_completed(futures):
             result = future.result()
-            parts_by_line[result.line_index][result.part_index] = result.segment
+            for line_index, part_index in task_locations[result.cache_key]:
+                parts_by_line[line_index][part_index] = result.segment
             results.append(result)
     tts_wall_seconds = time.perf_counter() - tts_wall_started
 
@@ -1128,6 +1169,9 @@ def _synthesize_lines(
     return line_segments, _SynthesisMetrics(
         worker_count=worker_count,
         part_count=len(tasks),
+        unique_part_count=len(unique_tasks),
+        deduped_part_count=len(tasks) - len(unique_tasks),
+        cache_hit_count=sum(1 for result in results if result.cache_hit),
         tts_wall_seconds=tts_wall_seconds,
         tts_call_seconds=sum(result.tts_seconds for result in results),
         decode_seconds=sum(result.decode_seconds for result in results),
@@ -1358,13 +1402,17 @@ def generate_audio():
     total_seconds = time.perf_counter() - request_started
 
     logger.info(
-        "Generated: provider=%s sentences=%d parts=%d workers=%d "
+        "Generated: provider=%s sentences=%d parts=%d unique_parts=%d "
+        "deduped_parts=%d cache_hits=%d workers=%d "
         "interval=%.1fs rate=%.1fx duration=%.1fs "
         "tts_wall=%.3fs tts_calls_total=%.3fs decode_total=%.3fs "
         "audio_processing=%.3fs encode=%.3fs base64=%.3fs total=%.3fs",
         provider_name,
         len(lines),
         synthesis_metrics.part_count,
+        synthesis_metrics.unique_part_count,
+        synthesis_metrics.deduped_part_count,
+        synthesis_metrics.cache_hit_count,
         synthesis_metrics.worker_count,
         interval,
         speech_rate,
@@ -1386,6 +1434,9 @@ def generate_audio():
             "audio_processing_seconds": round(audio_processing_seconds, 3),
             "encoding_seconds": round(encoding_seconds, 3),
             "part_count": synthesis_metrics.part_count,
+            "unique_part_count": synthesis_metrics.unique_part_count,
+            "deduped_part_count": synthesis_metrics.deduped_part_count,
+            "cache_hit_count": synthesis_metrics.cache_hit_count,
             "worker_count": synthesis_metrics.worker_count,
         },
     })

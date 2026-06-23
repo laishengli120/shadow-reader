@@ -171,18 +171,40 @@ class AudioPipelineTests(unittest.TestCase):
         self.assertGreaterEqual(peak_active, 2)
 
     def test_repeated_lines_are_cached_not_re_synthesized(self) -> None:
-        provider = FakeProvider()
+        provider = FakeProvider(delay=0.03)
 
-        segments, _ = shadow._synthesize_lines(
+        segments, metrics = shadow._synthesize_lines(
             provider,
-            ["hello", "hello"],
+            ["hello", "hello", "hello", "hello"],
+            "zh",
+            "en",
+            1.0,
+        )
+
+        self.assertEqual(len(segments), 4)
+        self.assertEqual(metrics.part_count, 4)
+        self.assertEqual(metrics.unique_part_count, 1)
+        self.assertEqual(metrics.deduped_part_count, 3)
+        self.assertEqual(metrics.worker_count, 1)
+        # 同一批任务先去重，避免重复项并发 miss 后重复请求 TTS。
+        self.assertEqual(len(provider.calls), 1)
+        self.assertEqual(provider.calls[0][0], "hello")
+
+    def test_numbered_repeated_lines_share_spoken_text(self) -> None:
+        provider = FakeProvider(delay=0.03)
+
+        segments, metrics = shadow._synthesize_lines(
+            provider,
+            ["1. hello", "hello"],
             "zh",
             "en",
             1.0,
         )
 
         self.assertEqual(len(segments), 2)
-        # 第二句命中缓存，TTS 实际只调用一次
+        self.assertEqual(metrics.part_count, 2)
+        self.assertEqual(metrics.unique_part_count, 1)
+        self.assertEqual(metrics.deduped_part_count, 1)
         self.assertEqual(len(provider.calls), 1)
         self.assertEqual(provider.calls[0][0], "hello")
 
