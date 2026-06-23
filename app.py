@@ -7,10 +7,12 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from typing import NamedTuple
+import urllib.request
 
 import requests
 from flask import Flask, jsonify, render_template, request
@@ -79,6 +81,8 @@ class TTSProvider(abc.ABC):
     #: 该 provider 支持的音色列表
     voices: list[VoiceOption] = []
     supports_native_rate = False
+    audio_format = "mp3"
+    max_workers = 8
 
     @property
     def voice_options(self) -> list[VoiceOption]:
@@ -90,7 +94,7 @@ class TTSProvider(abc.ABC):
 
     @abc.abstractmethod
     def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
-        """合成单句，返回 MP3 字节。失败时抛出异常。"""
+        """合成单句，返回 audio_format 指定格式的字节。"""
 
     def validate_voice(self, voice: str) -> bool:
         return voice in self.allowed_voice_values
@@ -539,7 +543,20 @@ class GTTSProvider(TTSProvider):
     - 依赖: pip install gtts
     """
     def __init__(self, api_key: str = "") -> None:
-        pass  # 免费服务商不需要凭证
+        self._chunk_workers = _clamp_int(
+            os.environ.get("GTTS_CHUNK_WORKERS"),
+            default=4,
+            low=1,
+            high=16,
+        )
+        self._timeout = _clamp_float(
+            os.environ.get("GTTS_TIMEOUT"),
+            default=10.0,
+            low=1.0,
+            high=60.0,
+        )
+
+    max_workers = 12
 
     # gTTS 没有多音色概念，用「语言」模拟音色选择
     voices = [
@@ -565,6 +582,45 @@ class GTTSProvider(TTSProvider):
         "yue":   ("yue", None),
     }
 
+    @staticmethod
+    def _send_prepared_request(tts_obj, prepared_request) -> bytes:
+        from gtts.tts import gTTSError
+
+        try:
+            requests.packages.urllib3.disable_warnings(
+                requests.packages.urllib3.exceptions.InsecureRequestWarning
+            )
+        except Exception:
+            pass
+
+        try:
+            with requests.Session() as session:
+                response = session.send(
+                    request=prepared_request,
+                    verify=False,
+                    proxies=urllib.request.getproxies(),
+                    timeout=tts_obj.timeout,
+                )
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as exc:
+            raise gTTSError(tts=tts_obj, response=response) from exc
+        except requests.exceptions.RequestException as exc:
+            raise gTTSError(tts=tts_obj) from exc
+
+        chunks: list[bytes] = []
+        for line in response.iter_lines(chunk_size=1024):
+            decoded_line = line.decode("utf-8")
+            if "jQ1olc" not in decoded_line:
+                continue
+            audio_search = re.search(r'jQ1olc","\[\\"(.*)\\"]', decoded_line)
+            if not audio_search:
+                raise gTTSError(tts=tts_obj, response=response)
+            chunks.append(base64.b64decode(audio_search.group(1).encode("ascii")))
+
+        if not chunks:
+            raise gTTSError(tts=tts_obj, response=response)
+        return b"".join(chunks)
+
     def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
         try:
             from gtts import gTTS
@@ -574,21 +630,38 @@ class GTTSProvider(TTSProvider):
             ) from exc
 
         lang, tld = self._LANG_MAP.get(voice, ("en", None))
-        kwargs = {"text": text, "lang": lang, "slow": False}
+        kwargs = {
+            "text": text,
+            "lang": lang,
+            "slow": False,
+            "timeout": self._timeout,
+        }
         if tld:
             kwargs["tld"] = tld
 
         tts_obj = gTTS(**kwargs)
+        prepared_requests = tts_obj._prepare_requests()
+        if not prepared_requests:
+            raise RuntimeError("gTTS 未生成有效请求。")
 
-        buf = io.BytesIO()
         try:
-            tts_obj.write_to_fp(buf)
+            worker_count = max(1, min(len(prepared_requests), self._chunk_workers))
+            results: list[bytes | None] = [None] * len(prepared_requests)
+            with ThreadPoolExecutor(max_workers=worker_count) as pool:
+                futures = {
+                    pool.submit(
+                        self._send_prepared_request,
+                        tts_obj,
+                        prepared_request,
+                    ): index
+                    for index, prepared_request in enumerate(prepared_requests)
+                }
+                for future in as_completed(futures):
+                    results[futures[future]] = future.result()
         except Exception as exc:
             raise RuntimeError(str(exc)) from exc
-        buf.seek(0)
-        mp3_bytes = buf.read()
-        buf.close()
-        return mp3_bytes
+
+        return b"".join(result for result in results if result is not None)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -613,6 +686,7 @@ class Pyttsx3Provider(TTSProvider):
     def __init__(self, api_key: str = "") -> None:
         pass  # 免费服务商不需要凭证
     supports_native_rate = True
+    max_workers = 1
 
     # 音色列表在运行时从系统动态获取，这里提供通用默认值
     # 用户可通过 /providers 接口查看实际可用音色
@@ -722,6 +796,7 @@ class Pyttsx3Provider(TTSProvider):
             except OSError:
                 pass
 
+
 # ═══════════════════════════════════════════════════════════════════
 # Provider Registry
 # ═══════════════════════════════════════════════════════════════════
@@ -810,6 +885,14 @@ def _clamp_float(value, default: float, low: float, high: float) -> float:
     return max(low, min(high, parsed))
 
 
+def _clamp_int(value, default: int, low: int, high: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(low, min(high, parsed))
+
+
 def _char_language(char: str) -> str | None:
     if _CJK_RE.match(char):
         return "zh"
@@ -890,35 +973,120 @@ def _adjust_audio_rate(segment: AudioSegment, rate: float) -> AudioSegment:
         return AudioSegment.from_file(out, format="mp3")
 
 
-def _segment_to_mp3_bytes(segment: AudioSegment) -> bytes:
-    with _bytes_io() as out:
-        segment.export(out, format="mp3")
-        return out.getvalue()
-
-
-def _audio_bytes_to_segment(audio_bytes: bytes) -> AudioSegment:
+def _audio_bytes_to_segment(
+    audio_bytes: bytes,
+    audio_format: str = "mp3",
+) -> AudioSegment:
     with _bytes_io() as fp:
         fp.write(audio_bytes)
         fp.seek(0)
-        return AudioSegment.from_file(fp, format="mp3")
+        return AudioSegment.from_file(fp, format=audio_format)
 
 
-def _synthesize_line(
+class _SynthesisTask(NamedTuple):
+    line_index: int
+    part_index: int
+    text: str
+    voice: str
+
+
+class _SynthesisResult(NamedTuple):
+    line_index: int
+    part_index: int
+    segment: AudioSegment
+    tts_seconds: float
+    decode_seconds: float
+
+
+class _SynthesisMetrics(NamedTuple):
+    worker_count: int
+    part_count: int
+    tts_wall_seconds: float
+    tts_call_seconds: float
+    decode_seconds: float
+    audio_processing_seconds: float
+
+
+def _synthesize_part(
     provider: TTSProvider,
-    line: str,
+    task: _SynthesisTask,
+    speech_rate: float,
+) -> _SynthesisResult:
+    tts_started = time.perf_counter()
+    audio_bytes = provider.tts(task.text, task.voice, speech_rate)
+    tts_seconds = time.perf_counter() - tts_started
+
+    decode_started = time.perf_counter()
+    segment = _audio_bytes_to_segment(audio_bytes, provider.audio_format)
+    decode_seconds = time.perf_counter() - decode_started
+
+    return _SynthesisResult(
+        task.line_index,
+        task.part_index,
+        segment,
+        tts_seconds,
+        decode_seconds,
+    )
+
+
+def _synthesize_lines(
+    provider: TTSProvider,
+    lines: list[str],
     voice_zh: str,
     voice_en: str,
     speech_rate: float,
-) -> bytes:
-    combined = AudioSegment.empty()
-    for part, part_lang in _split_text_by_language(line):
-        voice = voice_zh if part_lang == "zh" else voice_en
-        combined += _audio_bytes_to_segment(provider.tts(part, voice, speech_rate))
+) -> tuple[list[AudioSegment], _SynthesisMetrics]:
+    """Synthesize all language runs globally, then rebuild lines in order."""
+    tasks: list[_SynthesisTask] = []
+    part_counts: list[int] = []
 
-    if not provider.supports_native_rate:
-        combined = _adjust_audio_rate(combined, speech_rate)
+    for line_index, line in enumerate(lines):
+        parts = _split_text_by_language(line)
+        part_counts.append(len(parts))
+        for part_index, (part, part_lang) in enumerate(parts):
+            voice = voice_zh if part_lang == "zh" else voice_en
+            tasks.append(_SynthesisTask(line_index, part_index, part, voice))
 
-    return _segment_to_mp3_bytes(combined)
+    worker_count = max(1, min(len(tasks), provider.max_workers))
+    parts_by_line: list[list[AudioSegment | None]] = [
+        [None] * count for count in part_counts
+    ]
+    results: list[_SynthesisResult] = []
+
+    tts_wall_started = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        futures = [
+            pool.submit(_synthesize_part, provider, task, speech_rate)
+            for task in tasks
+        ]
+        for future in as_completed(futures):
+            result = future.result()
+            parts_by_line[result.line_index][result.part_index] = result.segment
+            results.append(result)
+    tts_wall_seconds = time.perf_counter() - tts_wall_started
+
+    processing_started = time.perf_counter()
+    line_segments: list[AudioSegment] = []
+    for line_parts in parts_by_line:
+        combined = AudioSegment.empty()
+        for part in line_parts:
+            if part is None:
+                raise RuntimeError("语音片段生成不完整。")
+            combined += part
+
+        if not provider.supports_native_rate:
+            combined = _adjust_audio_rate(combined, speech_rate)
+        line_segments.append(combined)
+    audio_processing_seconds = time.perf_counter() - processing_started
+
+    return line_segments, _SynthesisMetrics(
+        worker_count=worker_count,
+        part_count=len(tasks),
+        tts_wall_seconds=tts_wall_seconds,
+        tts_call_seconds=sum(result.tts_seconds for result in results),
+        decode_seconds=sum(result.decode_seconds for result in results),
+        audio_processing_seconds=audio_processing_seconds,
+    )
 
 
 def _openai_error_response(exc: APIStatusError) -> tuple[dict, int]:
@@ -997,6 +1165,7 @@ register_free_routes(app)
 @app.route("/generate", methods=["POST"])
 @limiter.limit("10 per minute")
 def generate_audio():
+    request_started = time.perf_counter()
     # ── 1. 解析与校验 ─────────────────────────────────────────────
     data = request.get_json(silent=True)
     if not data:
@@ -1074,22 +1243,13 @@ def generate_audio():
 
     # ── 2. 并发 TTS ──────────────────────────────────────────────
     try:
-        with ThreadPoolExecutor(max_workers=min(len(lines), 8)) as pool:
-            future_to_idx = {
-                pool.submit(
-                    _synthesize_line,
-                    provider,
-                    line,
-                    voice_zh,
-                    voice_en,
-                    speech_rate,
-                ): idx
-                for idx, line in enumerate(lines)
-            }
-            mp3_bytes: dict[int, bytes] = {}
-            for future in as_completed(future_to_idx):
-                idx = future_to_idx[future]
-                mp3_bytes[idx] = future.result()
+        line_segments, synthesis_metrics = _synthesize_lines(
+            provider,
+            lines,
+            voice_zh,
+            voice_en,
+            speech_rate,
+        )
 
     except AuthenticationError as exc:
         body, code = _openai_error_response(exc)
@@ -1113,14 +1273,13 @@ def generate_audio():
         return jsonify({"error": str(exc)}), 500
 
     # ── 3. 拼接音频 ───────────────────────────────────────────────
+    final_assembly_started = time.perf_counter()
     silence  = AudioSegment.silent(duration=int(interval * 1000))
     combined = AudioSegment.empty()
     timings: list[dict] = []
     current_ms = 0
 
-    for idx, line in enumerate(lines):
-        segment = _audio_bytes_to_segment(mp3_bytes[idx])
-
+    for idx, (line, segment) in enumerate(zip(lines, line_segments)):
         duration_ms = len(segment)
         timings.append({
             "index":      idx,
@@ -1135,14 +1294,42 @@ def generate_audio():
             combined   += silence
             current_ms += len(silence)
 
+    final_assembly_seconds = time.perf_counter() - final_assembly_started
+    audio_processing_seconds = (
+        synthesis_metrics.audio_processing_seconds + final_assembly_seconds
+    )
+
     # ── 4. 导出并返回 ────────────────────────────────────────────
+    encoding_started = time.perf_counter()
     with _bytes_io() as out:
         combined.export(out, format="mp3")
-        audio_b64 = base64.b64encode(out.getvalue()).decode()
+        final_audio = out.getvalue()
+    encoding_seconds = time.perf_counter() - encoding_started
+
+    base64_started = time.perf_counter()
+    audio_b64 = base64.b64encode(final_audio).decode()
+    base64_seconds = time.perf_counter() - base64_started
+    total_seconds = time.perf_counter() - request_started
 
     logger.info(
-        "Generated: provider=%s sentences=%d interval=%.1fs rate=%.1fx duration=%.1fs",
-        provider_name, len(lines), interval, speech_rate, current_ms / 1000.0,
+        "Generated: provider=%s sentences=%d parts=%d workers=%d "
+        "interval=%.1fs rate=%.1fx duration=%.1fs "
+        "tts_wall=%.3fs tts_calls_total=%.3fs decode_total=%.3fs "
+        "audio_processing=%.3fs encode=%.3fs base64=%.3fs total=%.3fs",
+        provider_name,
+        len(lines),
+        synthesis_metrics.part_count,
+        synthesis_metrics.worker_count,
+        interval,
+        speech_rate,
+        current_ms / 1000.0,
+        synthesis_metrics.tts_wall_seconds,
+        synthesis_metrics.tts_call_seconds,
+        synthesis_metrics.decode_seconds,
+        audio_processing_seconds,
+        encoding_seconds,
+        base64_seconds,
+        total_seconds,
     )
     return jsonify({"audio_base64": audio_b64, "timings": timings})
 
