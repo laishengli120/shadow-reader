@@ -693,7 +693,6 @@ audio { display: none; }
             <option value="edge-tts">Edge TTS ★ 推荐</option>
             <option value="gtts">gTTS (Google)</option>
             <option value="pyttsx3">pyttsx3（离线）</option>
-            <option value="voxcpm">VoxCPM2（本地开源）</option>
           </optgroup>
         </select>
       </div>
@@ -1302,15 +1301,6 @@ async function initProviders() {
           {value:"__female__",  label:"系统女声（如可用）", lang:"zh/en"},
           {value:"__male__",    label:"系统男声（如可用）", lang:"zh/en"},
         ],
-        voxcpm: [
-          {value:"default",         label:"默认上下文音色",       lang:"zh/en"},
-          {value:"zh_female_warm",  label:"温柔中文女声",         lang:"zh"},
-          {value:"zh_male_clear",   label:"清晰中文男声",         lang:"zh"},
-          {value:"zh_child_bright", label:"明亮童声（中文）",     lang:"zh"},
-          {value:"en_female_warm",  label:"Warm female voice",    lang:"en"},
-          {value:"en_male_clear",   label:"Clear male voice",     lang:"en"},
-          {value:"en_storyteller",  label:"Expressive storyteller", lang:"en"},
-        ],
       },
       credential_hints: {
         openai:      {format:"string", placeholder:"sk-...",          hint:"OpenAI API Key"},
@@ -1321,13 +1311,12 @@ async function initProviders() {
         "edge-tts":  {format:"none",   placeholder:"",                hint:"无需 API Key"},
         gtts:        {format:"none",   placeholder:"",                hint:"无需 API Key"},
         pyttsx3:     {format:"none",   placeholder:"",                hint:"完全离线"},
-        voxcpm:      {format:"none",   placeholder:"",                hint:"本地开源 VoxCPM2，无需 API Key"},
       },
     };
   }
 }
 
-const FREE_PROVIDERS = new Set(["edge-tts", "gtts", "pyttsx3", "voxcpm"]);
+const FREE_PROVIDERS = new Set(["edge-tts", "gtts", "pyttsx3"]);
 
 function voicesForLang(targetLang) {
   const exact = _currentVoices.filter(v => v.lang === targetLang || v.lang === 'zh/en');

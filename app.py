@@ -7,12 +7,12 @@ import json
 import logging
 import os
 import re
-import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from typing import NamedTuple
+import urllib.request
 
 import requests
 from flask import Flask, jsonify, render_template, request
@@ -543,7 +543,20 @@ class GTTSProvider(TTSProvider):
     - 依赖: pip install gtts
     """
     def __init__(self, api_key: str = "") -> None:
-        pass  # 免费服务商不需要凭证
+        self._chunk_workers = _clamp_int(
+            os.environ.get("GTTS_CHUNK_WORKERS"),
+            default=4,
+            low=1,
+            high=16,
+        )
+        self._timeout = _clamp_float(
+            os.environ.get("GTTS_TIMEOUT"),
+            default=10.0,
+            low=1.0,
+            high=60.0,
+        )
+
+    max_workers = 12
 
     # gTTS 没有多音色概念，用「语言」模拟音色选择
     voices = [
@@ -569,6 +582,45 @@ class GTTSProvider(TTSProvider):
         "yue":   ("yue", None),
     }
 
+    @staticmethod
+    def _send_prepared_request(tts_obj, prepared_request) -> bytes:
+        from gtts.tts import gTTSError
+
+        try:
+            requests.packages.urllib3.disable_warnings(
+                requests.packages.urllib3.exceptions.InsecureRequestWarning
+            )
+        except Exception:
+            pass
+
+        try:
+            with requests.Session() as session:
+                response = session.send(
+                    request=prepared_request,
+                    verify=False,
+                    proxies=urllib.request.getproxies(),
+                    timeout=tts_obj.timeout,
+                )
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as exc:
+            raise gTTSError(tts=tts_obj, response=response) from exc
+        except requests.exceptions.RequestException as exc:
+            raise gTTSError(tts=tts_obj) from exc
+
+        chunks: list[bytes] = []
+        for line in response.iter_lines(chunk_size=1024):
+            decoded_line = line.decode("utf-8")
+            if "jQ1olc" not in decoded_line:
+                continue
+            audio_search = re.search(r'jQ1olc","\[\\"(.*)\\"]', decoded_line)
+            if not audio_search:
+                raise gTTSError(tts=tts_obj, response=response)
+            chunks.append(base64.b64decode(audio_search.group(1).encode("ascii")))
+
+        if not chunks:
+            raise gTTSError(tts=tts_obj, response=response)
+        return b"".join(chunks)
+
     def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
         try:
             from gtts import gTTS
@@ -578,21 +630,38 @@ class GTTSProvider(TTSProvider):
             ) from exc
 
         lang, tld = self._LANG_MAP.get(voice, ("en", None))
-        kwargs = {"text": text, "lang": lang, "slow": False}
+        kwargs = {
+            "text": text,
+            "lang": lang,
+            "slow": False,
+            "timeout": self._timeout,
+        }
         if tld:
             kwargs["tld"] = tld
 
         tts_obj = gTTS(**kwargs)
+        prepared_requests = tts_obj._prepare_requests()
+        if not prepared_requests:
+            raise RuntimeError("gTTS 未生成有效请求。")
 
-        buf = io.BytesIO()
         try:
-            tts_obj.write_to_fp(buf)
+            worker_count = max(1, min(len(prepared_requests), self._chunk_workers))
+            results: list[bytes | None] = [None] * len(prepared_requests)
+            with ThreadPoolExecutor(max_workers=worker_count) as pool:
+                futures = {
+                    pool.submit(
+                        self._send_prepared_request,
+                        tts_obj,
+                        prepared_request,
+                    ): index
+                    for index, prepared_request in enumerate(prepared_requests)
+                }
+                for future in as_completed(futures):
+                    results[futures[future]] = future.result()
         except Exception as exc:
             raise RuntimeError(str(exc)) from exc
-        buf.seek(0)
-        mp3_bytes = buf.read()
-        buf.close()
-        return mp3_bytes
+
+        return b"".join(result for result in results if result is not None)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -729,150 +798,6 @@ class Pyttsx3Provider(TTSProvider):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Provider: VoxCPM2（本地开源模型）
-# ═══════════════════════════════════════════════════════════════════
-
-def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _env_float(name: str, default: float) -> float:
-    try:
-        return float(os.environ.get(name, default))
-    except (TypeError, ValueError):
-        return default
-
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(os.environ.get(name, default))
-    except (TypeError, ValueError):
-        return default
-
-
-class VoxCPMProvider(TTSProvider):
-    """
-    VoxCPM2 本地开源 TTS。
-    - 首次使用时自动加载/下载模型，后续请求复用内存中的模型
-    - 默认模型：openbmb/VoxCPM2
-    - 环境变量可配置 VOXCPM_MODEL、VOXCPM_DEVICE、VOXCPM_CACHE_DIR 等
-    - 依赖: pip install -r requirements-voxcpm.txt
-    """
-
-    audio_format = "wav"
-    max_workers = 1
-
-    voices = [
-        VoiceOption("default", "默认上下文音色", "zh/en"),
-        VoiceOption("zh_female_warm", "温柔中文女声", "zh"),
-        VoiceOption("zh_male_clear", "清晰中文男声", "zh"),
-        VoiceOption("zh_child_bright", "明亮童声（中文）", "zh"),
-        VoiceOption("en_female_warm", "Warm female voice", "en"),
-        VoiceOption("en_male_clear", "Clear male voice", "en"),
-        VoiceOption("en_storyteller", "Expressive storyteller", "en"),
-    ]
-
-    _VOICE_PROMPTS = {
-        "zh_female_warm": "A young woman, gentle and warm voice, clear Mandarin pronunciation",
-        "zh_male_clear": "A young man, clear and calm voice, standard Mandarin pronunciation",
-        "zh_child_bright": "A bright child voice, lively and natural, clear Mandarin pronunciation",
-        "en_female_warm": "A young woman, warm and gentle voice, natural English pronunciation",
-        "en_male_clear": "A young man, clear and confident voice, natural English pronunciation",
-        "en_storyteller": "An expressive storyteller voice, vivid intonation, natural English pronunciation",
-    }
-
-    _model = None
-    _model_signature: tuple | None = None
-    _model_lock = threading.Lock()
-    _infer_lock = threading.Lock()
-
-    def __init__(self, api_key: str = "") -> None:
-        pass
-
-    @classmethod
-    def _settings(cls) -> dict:
-        return {
-            "model": os.environ.get("VOXCPM_MODEL") or os.environ.get("VOXCPM_MODEL_ID", "openbmb/VoxCPM2"),
-            "device": os.environ.get("VOXCPM_DEVICE", "auto"),
-            "cache_dir": os.environ.get("VOXCPM_CACHE_DIR") or None,
-            "local_files_only": _env_bool("VOXCPM_LOCAL_FILES_ONLY", False),
-            "load_denoiser": _env_bool("VOXCPM_LOAD_DENOISER", False),
-            "optimize": _env_bool("VOXCPM_OPTIMIZE", False),
-        }
-
-    @classmethod
-    def _load_model(cls):
-        settings = cls._settings()
-        signature = tuple(sorted(settings.items()))
-
-        with cls._model_lock:
-            if cls._model is not None and cls._model_signature == signature:
-                return cls._model
-
-            try:
-                from voxcpm import VoxCPM
-            except ImportError as exc:
-                raise RuntimeError(
-                    "VoxCPM 未安装。请先执行: pip install -r requirements-voxcpm.txt"
-                ) from exc
-
-            try:
-                cls._model = VoxCPM.from_pretrained(
-                    settings["model"],
-                    load_denoiser=settings["load_denoiser"],
-                    cache_dir=settings["cache_dir"],
-                    local_files_only=settings["local_files_only"],
-                    optimize=settings["optimize"],
-                    device=settings["device"],
-                )
-            except Exception as exc:
-                raise RuntimeError(
-                    "VoxCPM 模型加载失败。请确认 Python 为 3.10-3.12，"
-                    "依赖已安装，且本机有足够内存/显存。原始错误: "
-                    f"{exc}"
-                ) from exc
-
-            cls._model_signature = signature
-            return cls._model
-
-    @staticmethod
-    def _voice_text(text: str, voice: str) -> str:
-        prompt = VoxCPMProvider._VOICE_PROMPTS.get(voice)
-        return f"({prompt}){text}" if prompt else text
-
-    @staticmethod
-    def _wav_to_bytes(wav, sample_rate: int) -> bytes:
-        try:
-            import soundfile as sf
-        except ImportError as exc:
-            raise RuntimeError(
-                "soundfile 未安装。请先执行: pip install -r requirements-voxcpm.txt"
-            ) from exc
-
-        with _bytes_io() as wav_buf:
-            sf.write(wav_buf, wav, sample_rate, format="WAV")
-            return wav_buf.getvalue()
-
-    def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
-        model = self._load_model()
-        target_text = self._voice_text(text, voice)
-        sample_rate = int(getattr(getattr(model, "tts_model", None), "sample_rate", 48000))
-
-        with self._infer_lock:
-            wav = model.generate(
-                text=target_text,
-                cfg_value=_env_float("VOXCPM_CFG_VALUE", 2.0),
-                inference_timesteps=_env_int("VOXCPM_INFERENCE_TIMESTEPS", 10),
-                normalize=_env_bool("VOXCPM_NORMALIZE", False),
-                denoise=_env_bool("VOXCPM_DENOISE", False),
-            )
-
-        return self._wav_to_bytes(wav, sample_rate)
-
-# ═══════════════════════════════════════════════════════════════════
 # Provider Registry
 # ═══════════════════════════════════════════════════════════════════
 
@@ -891,7 +816,6 @@ class ProviderRegistry:
         "edge-tts":     EdgeTTSProvider,    # 推荐，Neural 级别，免费
         "gtts":         GTTSProvider,       # Google，免费，音色单一
         "pyttsx3":      Pyttsx3Provider,    # 完全离线，音质较差
-        "voxcpm":       VoxCPMProvider,     # 本地开源神经网络 TTS
     }
 
     @classmethod
@@ -956,6 +880,14 @@ def _bytes_io():
 def _clamp_float(value, default: float, low: float, high: float) -> float:
     try:
         parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(low, min(high, parsed))
+
+
+def _clamp_int(value, default: int, low: int, high: int) -> int:
+    try:
+        parsed = int(value)
     except (TypeError, ValueError):
         parsed = default
     return max(low, min(high, parsed))
@@ -1200,8 +1132,6 @@ def list_providers():
                  "hint": "无需 API Key，调用 Google Translate TTS"},
         "pyttsx3":     {"format": "none", "placeholder": "",
                  "hint": "完全离线，调用系统自带语音引擎"},
-        "voxcpm":      {"format": "none", "placeholder": "",
-                 "hint": "本地开源 VoxCPM2，无需 API Key；首次使用会加载/下载模型"},
     }
     voices_map = ProviderRegistry.voices_map()
     return jsonify({
@@ -1211,7 +1141,7 @@ def list_providers():
     })
 
 
-FREE_PROVIDERS = {"edge-tts", "gtts", "pyttsx3", "voxcpm"}
+FREE_PROVIDERS = {"edge-tts", "gtts", "pyttsx3"}
 
 def register_free_routes(app):
     """将免费服务商相关路由注册到 Flask app。"""

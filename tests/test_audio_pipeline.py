@@ -123,9 +123,49 @@ class AudioPipelineTests(unittest.TestCase):
 
         self.assertEqual(metrics.worker_count, 1)
         self.assertEqual(provider.peak_active, 1)
-        self.assertEqual(shadow.VoxCPMProvider.max_workers, 1)
-        self.assertEqual(shadow.VoxCPMProvider.audio_format, "wav")
         self.assertEqual(shadow.Pyttsx3Provider.max_workers, 1)
+
+    def test_gtts_internal_requests_run_concurrently_and_keep_order(self) -> None:
+        class FakeGTTS:
+            timeout = 10.0
+
+            def __init__(self, **kwargs) -> None:
+                self.timeout = kwargs["timeout"]
+
+            def _prepare_requests(self):
+                return ["part-0", "part-1", "part-2", "part-3"]
+
+        active = 0
+        peak_active = 0
+        lock = threading.Lock()
+
+        def fake_send(tts_obj, prepared_request):
+            nonlocal active, peak_active
+            with lock:
+                active += 1
+                peak_active = max(peak_active, active)
+            try:
+                time.sleep(0.03)
+                return prepared_request.encode()
+            finally:
+                with lock:
+                    active -= 1
+
+        provider = shadow.GTTSProvider()
+        provider._chunk_workers = 4
+
+        with (
+            mock.patch("gtts.gTTS", FakeGTTS),
+            mock.patch.object(
+                shadow.GTTSProvider,
+                "_send_prepared_request",
+                staticmethod(fake_send),
+            ),
+        ):
+            audio = provider.tts("hello world", "en")
+
+        self.assertEqual(audio, b"part-0part-1part-2part-3")
+        self.assertGreaterEqual(peak_active, 2)
 
     def test_repeated_lines_are_not_deduplicated(self) -> None:
         provider = FakeProvider()
