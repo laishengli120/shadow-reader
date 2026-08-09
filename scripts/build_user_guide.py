@@ -434,7 +434,9 @@ def build_document():
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     doc.save(OUTPUT)
-    print(OUTPUT)
+    # Keep CI logs ASCII-only so Windows runners using a legacy console
+    # encoding do not fail after the document has already been saved.
+    print("Created Word user guide.")
 
 
 if __name__ == "__main__":
