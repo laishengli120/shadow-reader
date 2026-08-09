@@ -6,7 +6,10 @@ import io
 import json
 import logging
 import os
+import platform
 import re
+import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -31,6 +34,38 @@ import asyncio
 import tempfile
 
 from pydub import AudioSegment
+
+
+def _configure_audio_tools() -> str | None:
+    """Use the bundled FFmpeg binary when the application is packaged.
+
+    ``imageio-ffmpeg`` ships a platform-matched FFmpeg binary in its wheel.
+    That makes pydub work in the packaged desktop application without asking
+    the person running it to install FFmpeg separately. An explicit
+    ``FFMPEG_BINARY`` environment variable still takes precedence for local
+    development and troubleshooting.
+    """
+    configured = os.environ.get("FFMPEG_BINARY")
+    if configured and os.path.isfile(configured):
+        executable = configured
+    else:
+        try:
+            import imageio_ffmpeg
+
+            executable = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception as exc:
+            logging.getLogger("shadow_reader").warning(
+                "Bundled FFmpeg is unavailable: %s", exc
+            )
+            return None
+
+    # pydub uses this executable for exporting and transcoding audio.
+    AudioSegment.converter = executable
+    AudioSegment.ffmpeg = executable
+    return executable
+
+
+FFMPEG_BINARY = _configure_audio_tools()
 
 def _run_async(coro):
     """在当前线程中运行一个协程，兼容已有事件循环的情况。"""
@@ -676,128 +711,162 @@ class GTTSProvider(TTSProvider):
 # ═══════════════════════════════════════════════════════════════════
 
 class Pyttsx3Provider(TTSProvider):
-    """
-    pyttsx3 离线 TTS，调用系统自带语音引擎
-    - 完全离线，无需网络
-    - 音质较差（系统级 TTS）
-    - 音色取决于操作系统已安装的语音包
-    - Windows: SAPI5（自带多种语音）
-    - macOS: NSSpeechSynthesizer（自带 Alex、Samantha 等）
-    - Linux: espeak-ng（需手动安装: sudo apt install espeak espeak-ng）
-    - 依赖: pip install pyttsx3
+    """Offline TTS backed by the operating system's own speech service.
 
-    实现说明：
-    pyttsx3 的 save_to_file() 只支持写到文件路径，不支持 BytesIO。
-    这里用 tempfile 写临时文件，读回后删除，避免磁盘残留。
+    The historical class and API name are retained so existing browser settings
+    keep working. Calling native speech services directly keeps the packaged
+    app self-contained instead of bundling a large desktop-framework runtime.
     """
+
     def __init__(self, api_key: str = "") -> None:
-        pass  # 免费服务商不需要凭证
+        pass
+
     supports_native_rate = True
     max_workers = 1
-
-    # 音色列表在运行时从系统动态获取，这里提供通用默认值
-    # 用户可通过 /providers 接口查看实际可用音色
     voices = [
-        VoiceOption("__default__",  "系统默认音色",        "zh/en"),
-        VoiceOption("__female__",   "系统女声（如可用）",   "zh/en"),
-        VoiceOption("__male__",     "系统男声（如可用）",   "zh/en"),
+        VoiceOption("__default__", "系统默认音色", "zh/en"),
+        VoiceOption("__female__", "系统女声（如可用）", "zh/en"),
+        VoiceOption("__male__", "系统男声（如可用）", "zh/en"),
     ]
 
     @classmethod
     def get_system_voices(cls) -> list[VoiceOption]:
-        """
-        动态获取当前系统已安装的语音列表。
-        供 /providers 接口调用，返回真实可用音色。
-        """
+        """Return the voices actually available on the current computer."""
         try:
-            import pyttsx3
-            engine = pyttsx3.init()
-            sys_voices = engine.getProperty("voices")
-            engine.stop()
-            result = []
-            for v in sys_voices:
-                name  = v.name or v.id
-                # 简单判断语言
-                vid   = v.id.lower()
-                lang  = "zh" if ("zh" in vid or "chinese" in vid or "mandarin" in vid) \
-                        else "en"
-                result.append(VoiceOption(v.id, name, lang))
-            return result if result else cls.voices
+            system = platform.system()
+            if system == "Darwin":
+                output = subprocess.check_output(
+                    ["say", "-v", "?"], text=True, stderr=subprocess.DEVNULL
+                )
+                voices = []
+                for line in output.splitlines():
+                    fields = line.split()
+                    if len(fields) >= 2:
+                        name, locale = fields[0], fields[1].lower()
+                        voices.append(VoiceOption(
+                            name, name,
+                            "zh" if locale.startswith(("zh", "yue")) else "en",
+                        ))
+                return voices or cls.voices
+
+            if system == "Windows":
+                script = (
+                    "Add-Type -AssemblyName System.Speech; "
+                    "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                    "$s.GetInstalledVoices() | ForEach-Object "
+                    "{ $_.VoiceInfo.Name + [char]9 + $_.VoiceInfo.Culture.Name }"
+                )
+                output = subprocess.check_output(
+                    ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                )
+                voices = []
+                for line in output.splitlines():
+                    name, _, locale = line.partition("\t")
+                    if name:
+                        voices.append(VoiceOption(
+                            name, name, "zh" if locale.lower().startswith("zh") else "en"
+                        ))
+                return voices or cls.voices
+
+            binary = shutil.which("espeak-ng") or shutil.which("espeak")
+            if binary:
+                output = subprocess.check_output(
+                    [binary, "--voices"], text=True, stderr=subprocess.DEVNULL
+                )
+                voices = []
+                for line in output.splitlines()[1:]:
+                    fields = line.split()
+                    if len(fields) >= 4:
+                        locale, name = fields[1].lower(), fields[3]
+                        voices.append(VoiceOption(
+                            name, name,
+                            "zh" if locale.startswith(("zh", "cmn", "yue")) else "en",
+                        ))
+                return voices or cls.voices
         except Exception:
-            return cls.voices
+            pass
+        return cls.voices
 
     @property
     def voice_options(self) -> list[VoiceOption]:
-        values: dict[str, VoiceOption] = {}
-        for voice in self.get_system_voices() + self.voices:
-            values[voice.value] = voice
-        return list(values.values())
+        voices = {voice.value: voice for voice in self.get_system_voices() + self.voices}
+        return list(voices.values())
 
     def _resolve_voice_id(self, voice: str) -> str | None:
-        """将虚拟音色名（__female__ 等）解析为系统实际的 voice.id。"""
-        try:
-            import pyttsx3
-            engine = pyttsx3.init()
-            sys_voices = engine.getProperty("voices") or []
-            engine.stop()
-        except Exception:
+        voices = self.get_system_voices()
+        if voice == "__default__" or not voices:
             return None
-
-        if voice == "__default__" or not sys_voices:
-            return None  # 不设置，使用系统默认
-
-        if voice == "__female__":
-            for v in sys_voices:
-                if "female" in (v.gender or "").lower() \
-                        or "zira" in v.id.lower() \
-                        or "samantha" in v.id.lower():
-                    return v.id
-            return sys_voices[0].id
-
-        if voice == "__male__":
-            for v in sys_voices:
-                if "male" in (v.gender or "").lower() \
-                        or "david" in v.id.lower() \
-                        or "alex" in v.id.lower():
-                    return v.id
-            return sys_voices[-1].id
-
-        # voice 是真实系统 id（从 get_system_voices() 获取的）
+        if voice in {"__female__", "__male__"}:
+            markers = (
+                ("female", "zira", "samantha", "xiaoxiao")
+                if voice == "__female__"
+                else ("male", "david", "alex", "yunxi")
+            )
+            for option in voices:
+                if any(marker in f"{option.value} {option.label}".lower() for marker in markers):
+                    return option.value
+            return voices[0 if voice == "__female__" else -1].value
         return voice
 
     def tts(self, text: str, voice: str, rate: float = 1.0) -> bytes:
-        try:
-            import pyttsx3
-        except ImportError as exc:
-            raise RuntimeError(
-                "pyttsx3 未安装，请执行: pip install pyttsx3\n"
-                "Linux 还需要: sudo apt install espeak espeak-ng"
-            ) from exc
-
         voice_id = self._resolve_voice_id(voice)
-
-        # pyttsx3 不支持 BytesIO，必须写到临时文件
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+        system = platform.system()
+        suffix = ".aiff" if system == "Darwin" else ".wav"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp_path = tmp.name
 
         try:
-            engine = pyttsx3.init()
-            if voice_id:
-                engine.setProperty("voice", voice_id)
-            engine.setProperty("rate", int(150 * rate))    # 语速（wpm），默认 200 偏快
-            engine.setProperty("volume", 1.0)
-            engine.save_to_file(text, tmp_path)
-            engine.runAndWait()
-            engine.stop()
+            if system == "Darwin":
+                command = ["say", "-o", tmp_path, "-r", str(int(180 * rate))]
+                if voice_id:
+                    command.extend(["-v", voice_id])
+                subprocess.run(command + [text], check=True, capture_output=True)
+            elif system == "Windows":
+                script = (
+                    "$ErrorActionPreference='Stop'; "
+                    "Add-Type -AssemblyName System.Speech; "
+                    "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                    "$v=[Environment]::GetEnvironmentVariable('SHADOW_READER_VOICE'); "
+                    "if ($v) { $s.SelectVoice($v) }; "
+                    "$s.Rate=[int][Environment]::GetEnvironmentVariable('SHADOW_READER_RATE'); "
+                    "$s.SetOutputToWaveFile([Environment]::GetEnvironmentVariable('SHADOW_READER_OUTPUT')); "
+                    "$s.Speak([Environment]::GetEnvironmentVariable('SHADOW_READER_TEXT')); "
+                    "$s.Dispose()"
+                )
+                env = os.environ | {
+                    "SHADOW_READER_OUTPUT": tmp_path,
+                    "SHADOW_READER_TEXT": text,
+                    "SHADOW_READER_VOICE": voice_id or "",
+                    "SHADOW_READER_RATE": str(round((rate - 1.0) * 10)),
+                }
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                    check=True,
+                    capture_output=True,
+                    env=env,
+                )
+            else:
+                binary = shutil.which("espeak-ng") or shutil.which("espeak")
+                if not binary:
+                    raise RuntimeError(
+                        "Linux 离线语音需要 espeak-ng。请安装后重试：sudo apt install espeak-ng"
+                    )
+                command = [binary, "-w", tmp_path, "-s", str(int(175 * rate))]
+                if voice_id:
+                    command.extend(["-v", voice_id])
+                subprocess.run(command + [text], check=True, capture_output=True)
 
-            # 读取临时文件并用 pydub 标准化为 MP3
-            audio = AudioSegment.from_file(tmp_path)
-            buf = io.BytesIO()
-            audio.export(buf, format="mp3")
-            return buf.getvalue()
-
+            with open(tmp_path, "rb") as audio_file:
+                audio = _audio_bytes_to_segment(audio_file.read())
+            buffer = io.BytesIO()
+            audio.export(buffer, format="mp3")
+            return buffer.getvalue()
+        except subprocess.CalledProcessError as exc:
+            detail = exc.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"系统离线语音生成失败：{detail or exc}") from exc
         finally:
-            # 无论成功与否都删除临时文件
             try:
                 os.unlink(tmp_path)
             except OSError:
@@ -986,18 +1055,44 @@ def _adjust_audio_rate(segment: AudioSegment, rate: float) -> AudioSegment:
             format="mp3",
             parameters=["-filter:a", f"atempo={rate:.3f}"],
         )
-        out.seek(0)
-        return AudioSegment.from_file(out, format="mp3")
+        return _audio_bytes_to_segment(out.getvalue(), "mp3")
 
 
 def _audio_bytes_to_segment(
     audio_bytes: bytes,
     audio_format: str = "mp3",
 ) -> AudioSegment:
-    with _bytes_io() as fp:
-        fp.write(audio_bytes)
-        fp.seek(0)
-        return AudioSegment.from_file(fp, format=audio_format)
+    """Decode provider audio using FFmpeg without a separately installed ffprobe.
+
+    pydub normally probes compressed streams with the ``ffprobe`` executable.
+    The distributable instead carries a single FFmpeg binary, so we convert
+    incoming audio to WAV first and let pydub read the WAV bytes directly.
+    """
+    if audio_format.lower() in {"wav", "wave"}:
+        return AudioSegment.from_wav(io.BytesIO(audio_bytes))
+
+    if not FFMPEG_BINARY:
+        raise RuntimeError(
+            "找不到 FFmpeg。请重新下载完整安装包，或设置 FFMPEG_BINARY。"
+        )
+
+    result = subprocess.run(
+        [
+            FFMPEG_BINARY,
+            "-v", "error",
+            "-i", "pipe:0",
+            "-f", "wav",
+            "pipe:1",
+        ],
+        input=audio_bytes,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0 or not result.stdout:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"音频解码失败：{detail or 'FFmpeg 未返回音频数据'}")
+    return AudioSegment.from_wav(io.BytesIO(result.stdout))
 
 
 # ── TTS 音频缓存 ───────────────────────────────────────────────

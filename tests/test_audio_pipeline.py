@@ -283,7 +283,7 @@ class GenerateEndpointTests(unittest.TestCase):
         self.assertEqual(mp3_exports, 1)
 
         audio = base64.b64decode(payload["audio_base64"])
-        decoded = AudioSegment.from_file(io.BytesIO(audio), format="mp3")
+        decoded = shadow._audio_bytes_to_segment(audio, audio_format="mp3")
         self.assertGreater(len(decoded), 0)
 
         timings = payload["timings"]
